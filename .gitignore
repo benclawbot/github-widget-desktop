@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.exe
+*.dll
+*.pak
+*.dat
+*.bin
+*.json
+!package.json
+!app.asar
+screenshots/
+*.raw
+*.log
