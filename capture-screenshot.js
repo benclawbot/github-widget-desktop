@@ -8,7 +8,7 @@ async function capture() {
     thumbnailSize: { width: 900, height: 1400 }
   });
 
-  const widget = sources.find(s => s.name.includes('GitHub Dashboard'));
+  const widget = sources.find(s => s.name === 'GitHub Widget');
   if (widget) {
     const screenshotsDir = path.join(__dirname, 'screenshots');
     if (!fs.existsSync(screenshotsDir)) fs.mkdirSync(screenshotsDir, { recursive: true });

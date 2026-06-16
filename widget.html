@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GitHub Dashboard Widget</title>
+  <title>GitHub Widget</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -33,12 +33,14 @@
     .trend-card:hover { transform: translateX(4px); background: rgba(255, 255, 255, 0.03); }
     .tooltip { pointer-events: none; opacity: 0; transition: opacity 0.15s; z-index: 2147483647; }
     .tooltip.visible { opacity: 1; }
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    .spin { animation: spin 0.8s linear infinite; }
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .spin { animation: spin 0.8s linear infinite; }
+    .config-panel { display: none; }
+    .config-panel.open { display: flex; }
   </style>
 </head>
 <body class="text-white">
@@ -54,6 +56,12 @@
       <span class="text-sm font-medium text-gray-300">GitHub Widget</span>
     </div>
     <div class="flex items-center gap-1">
+      <button id="btn-config" class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors" title="Settings">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+      </button>
       <button id="btn-refresh" class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors" title="Refresh">
         <svg id="refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
@@ -72,6 +80,32 @@
     </div>
   </div>
 
+  <!-- Settings Panel -->
+  <div id="config-panel" class="config-panel fixed inset-0 z-[200] bg-black/80 items-center justify-center">
+    <div class="glass rounded-xl p-5 w-80 max-w-[90vw]">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-white">Settings</h2>
+        <button id="btn-config-close" class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 text-gray-400 hover:text-white">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">GitHub Username</label>
+          <input id="input-username" type="text" placeholder="benclawbot" class="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">GitHub Token <span class="text-gray-500">(optional, for higher rate limits)</span></label>
+          <input id="input-token" type="password" placeholder="ghp_..." class="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50">
+        </div>
+        <p class="text-xs text-gray-500">Token needs no scopes for public repos. Get one at GitHub → Settings → Developer Settings → Personal Access Tokens.</p>
+        <button id="btn-save-config" class="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-medium text-white transition-colors">Save & Refresh</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Main Content -->
   <div class="scroll-content p-3 space-y-3">
 
@@ -82,7 +116,7 @@
       <div class="glass rounded-xl p-3 flex-shrink-0">
         <div class="flex items-center justify-between mb-2">
           <h2 class="text-xs font-medium text-gray-300">Activity Overview</h2>
-          <span class="text-xs text-gray-500">Feb 6 - Jun 16</span>
+          <span id="activity-dates" class="text-xs text-gray-500">--</span>
         </div>
         <div id="activity-container">
           <div id="month-labels" class="flex h-4 mb-1"></div>
@@ -106,7 +140,7 @@
       <div class="glass rounded-xl p-3 flex-shrink-0">
         <div class="flex items-center justify-between mb-2">
           <h2 class="text-xs font-medium text-gray-300">Active This Week</h2>
-          <span class="text-xs px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">11</span>
+          <span id="active-count" class="text-xs px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">--</span>
         </div>
         <div id="active-repos" class="space-y-1 overflow-y-auto" style="max-height: 160px;"></div>
       </div>
@@ -148,119 +182,24 @@
   </div>
 
   <script>
-    const pushEventsByDate = {
-      '2026-02-06': 12, '2026-02-07': 20, '2026-02-08': 9, '2026-02-09': 9,
-      '2026-02-10': 5, '2026-02-11': 9, '2026-02-12': 32, '2026-02-13': 9,
-      '2026-02-14': 11, '2026-02-15': 29, '2026-02-16': 19, '2026-02-17': 12,
-      '2026-02-18': 12, '2026-02-19': 4, '2026-02-20': 12, '2026-02-21': 11,
-      '2026-02-22': 10, '2026-02-23': 34, '2026-02-24': 51, '2026-02-25': 40,
-      '2026-02-26': 13, '2026-02-27': 50, '2026-02-28': 19,
-      '2026-03-01': 86, '2026-03-02': 54, '2026-03-03': 53, '2026-03-04': 69,
-      '2026-03-05': 135, '2026-03-06': 107, '2026-03-07': 18, '2026-03-08': 6,
-      '2026-03-09': 7, '2026-03-10': 37, '2026-03-11': 26, '2026-03-12': 24,
-      '2026-03-13': 57, '2026-03-14': 33, '2026-03-15': 20, '2026-03-16': 51,
-      '2026-03-17': 30, '2026-03-18': 19, '2026-03-19': 54, '2026-03-20': 37,
-      '2026-03-21': 61, '2026-03-22': 26, '2026-03-23': 23, '2026-03-24': 31,
-      '2026-03-25': 40, '2026-03-26': 34, '2026-03-27': 25, '2026-03-28': 49,
-      '2026-03-29': 14, '2026-03-30': 32, '2026-03-31': 12,
-      '2026-04-01': 45, '2026-04-02': 114, '2026-04-03': 136, '2026-04-04': 55,
-      '2026-04-05': 52, '2026-04-06': 27, '2026-04-07': 29, '2026-04-08': 13,
-      '2026-04-09': 48, '2026-04-10': 36, '2026-04-11': 21, '2026-04-12': 42,
-      '2026-04-13': 55, '2026-04-14': 36, '2026-04-15': 46, '2026-04-16': 34,
-      '2026-04-17': 38, '2026-04-18': 19, '2026-04-19': 32, '2026-04-20': 9,
-      '2026-04-21': 26, '2026-04-22': 22, '2026-04-23': 28, '2026-04-24': 20,
-      '2026-04-25': 37, '2026-04-26': 42, '2026-04-27': 51, '2026-04-28': 46,
-      '2026-04-29': 138, '2026-04-30': 134,
-      '2026-05-01': 108, '2026-05-02': 57, '2026-05-03': 94, '2026-05-04': 238,
-      '2026-05-05': 296, '2026-05-06': 257, '2026-05-07': 347, '2026-05-08': 276,
-      '2026-05-09': 176, '2026-05-10': 152, '2026-05-11': 141, '2026-05-12': 17,
-      '2026-05-13': 21, '2026-05-14': 32, '2026-05-15': 13, '2026-05-16': 9,
-      '2026-05-17': 14, '2026-05-18': 45, '2026-05-19': 82, '2026-05-20': 61,
-      '2026-05-21': 67, '2026-05-22': 30, '2026-05-23': 67, '2026-05-24': 70,
-      '2026-05-25': 104, '2026-05-26': 40, '2026-05-27': 62, '2026-05-28': 77,
-      '2026-05-29': 92, '2026-05-30': 85, '2026-05-31': 50,
-      '2026-06-01': 22, '2026-06-02': 1, '2026-06-03': 21, '2026-06-04': 4,
-      '2026-06-05': 15, '2026-06-06': 6, '2026-06-07': 17, '2026-06-08': 18,
-      '2026-06-09': 4, '2026-06-10': 1, '2026-06-11': 2, '2026-06-12': 6,
-      '2026-06-13': 4, '2026-06-14': 4, '2026-06-15': 3, '2026-06-16': 2
+    // Fallback static data for demo
+    const staticActivity = {
+      '2026-06-10': 1, '2026-06-11': 2, '2026-06-12': 6, '2026-06-13': 4,
+      '2026-06-14': 4, '2026-06-15': 3, '2026-06-16': 2
     };
-
-    const totalContributions = Object.values(pushEventsByDate).reduce((a, b) => a + b, 0);
-
-    const activeReposData = [
-      {name: 'fable-5-universal-system-prompt', desc: 'Fable 5 universal system prompt', lang: null, stars: 0, issues: 0, pushed: '2026-06-16T18:53:20Z', url: 'https://github.com/benclawbot/fable-5-universal-system-prompt', private: false},
-      {name: 'reach-atlas', desc: '', lang: 'TypeScript', stars: 0, issues: 0, pushed: '2026-06-16T18:32:30Z', url: 'https://github.com/benclawbot/reach-atlas', private: true},
-      {name: 'Claude-Harness', desc: '', lang: 'JavaScript', stars: 0, issues: 0, pushed: '2026-06-16T12:46:39Z', url: 'https://github.com/benclawbot/Claude-Harness', private: false},
-      {name: 'trendboss', desc: '', lang: null, stars: 0, issues: 0, pushed: '2026-06-16T09:07:50Z', url: 'https://github.com/benclawbot/trendboss', private: false},
-      {name: 'HTML-specs', desc: 'Spec-driven build flow', lang: 'JavaScript', stars: 0, issues: 0, pushed: '2026-06-15T19:53:44Z', url: 'https://github.com/benclawbot/HTML-specs', private: false},
-      {name: 'Omni-Memory', desc: '', lang: 'JavaScript', stars: 0, issues: 0, pushed: '2026-06-15T06:02:45Z', url: 'https://github.com/benclawbot/Omni-Memory', private: true},
-      {name: 'Pi-Agent-Optimus', desc: 'Memory-augmented coding agent', lang: 'Python', stars: 0, issues: 0, pushed: '2026-06-14T15:35:41Z', url: 'https://github.com/benclawbot/Pi-Agent-Optimus', private: false},
-      {name: 'RTK', desc: 'CLI proxy 60-90% token savings', lang: 'Rust', stars: 0, issues: 0, pushed: '2026-06-12T16:13:14Z', url: 'https://github.com/benclawbot/RTK', private: false},
-      {name: 'Helios-Accord', desc: 'Grand strategy game', lang: 'TypeScript', stars: 1, issues: 0, pushed: '2026-06-12T09:00:10Z', url: 'https://github.com/benclawbot/Helios-Accord', private: false},
-      {name: 'weekender', desc: 'Family activity app', lang: 'Python', stars: 0, issues: 0, pushed: '2026-06-11T13:49:29Z', url: 'https://github.com/benclawbot/weekender', private: false},
-      {name: 'hermes-skills', desc: '', lang: null, stars: 0, issues: 0, pushed: '2026-06-10T12:25:59Z', url: 'https://github.com/benclawbot/hermes-skills', private: true},
+    const staticRepos = [
+      {name: 'github-widget-desktop', desc: 'GitHub dashboard widget', lang: 'JavaScript', stars: 0, issues: 0, pushed: '2026-06-16T12:00:00Z', url: 'https://github.com/benclawbot/github-widget-desktop', private: false},
+    ];
+    const staticAllRepos = [{name: 'github-widget-desktop', stars: 0, issues: 0}];
+    const staticTrending = [
+      {name: 'anthropics/anthropic-cookbook', desc: 'Examples for building with Anthropic models', stars: '12.4k', lang: 'Jupyter Notebook', langColor: 'bg-orange-400'},
+      {name: 'ollama/ollama', desc: 'Run Llama 3, Mistral locally', stars: '28.5k', lang: 'Go', langColor: 'bg-cyan-500'},
     ];
 
-    const allReposData = [
-      {name: 'fable-5-universal-system-prompt', stars: 0, issues: 0},
-      {name: 'Claude-Harness', stars: 0, issues: 0},
-      {name: 'HTML-specs', stars: 0, issues: 0},
-      {name: 'RTK', stars: 0, issues: 0},
-      {name: 'GanttMaker', stars: 0, issues: 0},
-      {name: 'Helios-Accord', stars: 1, issues: 0},
-      {name: 'weekender', stars: 0, issues: 0},
-      {name: 'Video-Meeting-Minutes-Manager', stars: 0, issues: 1},
-      {name: 'Recursive-Self-Improvement', stars: 0, issues: 0},
-      {name: 'rangeboss', stars: 0, issues: 0},
-      {name: 'skills', stars: 0, issues: 0},
-      {name: 'iAgent-windows', stars: 0, issues: 0},
-      {name: 'jcode', stars: 0, issues: 0},
-      {name: 'zen-browser', stars: 0, issues: 0},
-      {name: 'open-brain', stars: 38, issues: 1},
-      {name: 'pm-command-center', stars: 0, issues: 0},
-      {name: 'Pi-Agent-Optimus', stars: 0, issues: 0},
-      {name: 'hermes-agent', stars: 0, issues: 0},
-      {name: 'yoga-flow-builder', stars: 0, issues: 0},
-      {name: 'kilocode', stars: 0, issues: 1},
-      {name: 'agent-commit', stars: 0, issues: 0},
-      {name: 'pi-mobile', stars: 0, issues: 0},
-      {name: 'howcode', stars: 0, issues: 0},
-      {name: 'liquidity-pulse', stars: 0, issues: 0},
-      {name: 'Claude-trading-bot', stars: 0, issues: 0},
-      {name: 'dropsync-pwa', stars: 0, issues: 0},
-      {name: 'uniapi-connector', stars: 0, issues: 0},
-      {name: 'MindDrop2-Opencode', stars: 0, issues: 0},
-      {name: 'OmniCom', stars: 0, issues: 0},
-      {name: 'TrailBlazer', stars: 0, issues: 0},
-      {name: 'BrainstormFlow', stars: 0, issues: 0},
-      {name: 'hermes-lcm', stars: 0, issues: 0},
-      {name: 'context-mode', stars: 0, issues: 0},
-      {name: 'AI-Harness', stars: 0, issues: 0},
-      {name: 'websend-landing', stars: 0, issues: 0},
-      {name: 'WebSend', stars: 0, issues: 0},
-      {name: 'android_app_factory', stars: 0, issues: 0},
-      {name: 'FastBot', stars: 1, issues: 2},
-      {name: 'brainstorm-trooper', stars: 0, issues: 0},
-      {name: 'autonomos', stars: 0, issues: 0},
-      {name: 'Daily-Rehab', stars: 0, issues: 0},
-      {name: 'CV-Maestro', stars: 0, issues: 0},
-      {name: 'Omni-Memory', stars: 0, issues: 0},
-      {name: 'reach-atlas', stars: 0, issues: 0},
-      {name: 'trendboss', stars: 0, issues: 0},
-      {name: 'hermes-skills', stars: 0, issues: 0},
-    ];
-
-    const trendingData = [
-      {name: 'anthropics/anthropic-cookbook', desc: 'A cookbook with examples for building with Anthropic models', stars: '12.4k', lang: 'Jupyter Notebook', langColor: 'bg-orange-400'},
-      {name: 'seaofai/claude-code-hackathon', desc: 'Claude Code Hackathon starter template', stars: '3.8k', lang: 'TypeScript', langColor: 'bg-blue-400'},
-      {name: 'ollama/ollama', desc: 'Get up and running with Llama 3, Mistral, and other large language models locally', stars: '28.5k', lang: 'Go', langColor: 'bg-cyan-500'},
-      {name: 'graphrag/graphrag', desc: 'Graph-based Retrieval Augmented Generation for complex document understanding', stars: '9.7k', lang: 'Python', langColor: 'bg-blue-500'},
-      {name: 'mistralai/mistral-finetune', desc: 'Simple and efficient fine-tuning of Mistral models', stars: '5.1k', lang: 'Python', langColor: 'bg-blue-500'},
-      {name: 'linearbug/awesome-ai-agents', desc: 'Curated list of AI agents and autonomous tools', stars: '8.2k', lang: 'Python', langColor: 'bg-blue-500'},
-    ];
+    let config = { username: 'benclawbot', token: '' };
 
     function langColor(lang) {
-      const colors = {Python: 'bg-blue-500', TypeScript: 'bg-blue-400', Rust: 'bg-orange-500', Go: 'bg-cyan-500', JavaScript: 'bg-yellow-400', HTML: 'bg-orange-400', Dart: 'bg-cyan-400'};
+      const colors = {Python: 'bg-blue-500', TypeScript: 'bg-blue-400', Rust: 'bg-orange-500', Go: 'bg-cyan-500', JavaScript: 'bg-yellow-400', HTML: 'bg-orange-400', Dart: 'bg-cyan-400', 'Jupyter Notebook': 'bg-orange-400'};
       return colors[lang] || 'bg-gray-400';
     }
 
@@ -282,28 +221,32 @@
     }
 
     function getActivityColor(count) {
-      if (count === 0) return 'bg-surface-800';
-      if (count <= 10) return 'bg-emerald-900';
-      if (count <= 30) return 'bg-emerald-700';
-      if (count <= 60) return 'bg-emerald-500';
+      if (count === 0) return 'bg-[#161b22]';
+      if (count <= 3) return 'bg-emerald-900';
+      if (count <= 6) return 'bg-emerald-700';
+      if (count <= 10) return 'bg-emerald-500';
       return 'bg-emerald-400';
     }
 
-    function buildActivityMap() {
+    function buildActivityMap(eventsByDate) {
       const container = document.getElementById('activity-map');
       const monthLabels = document.getElementById('month-labels');
       const tooltip = document.getElementById('tooltip');
-      const startDate = new Date('2026-02-06');
-      const endDate = new Date('2026-06-16');
+      const endDate = new Date();
+      const startDate = new Date(endDate);
+      startDate.setDate(endDate.getDate() - 130);
       const cellWidth = 11;
       const allDays = [];
       const current = new Date(startDate);
 
       while (current <= endDate) {
         const dateStr = current.toISOString().split('T')[0];
-        allDays.push({ date: dateStr, count: pushEventsByDate[dateStr] || 0, month: current.getMonth() });
+        allDays.push({ date: dateStr, count: eventsByDate[dateStr] || 0, month: current.getMonth() });
         current.setDate(current.getDate() + 1);
       }
+
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('activity-dates').textContent = `${allDays[0].date} — ${today}`;
 
       monthLabels.innerHTML = '';
       let currentMonth = -1, monthStartIndex = 0;
@@ -334,7 +277,7 @@
       allDays.forEach(day => {
         const div = document.createElement('div');
         div.className = 'w-2.5 h-2.5 rounded-sm activity-cell ' + getActivityColor(day.count);
-        div.addEventListener('mouseenter', (e) => {
+        div.addEventListener('mouseenter', () => {
           const date = new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
           const commits = day.count === 1 ? '1 commit' : day.count + ' commits';
           tooltip.textContent = date + ' — ' + commits;
@@ -346,26 +289,19 @@
         div.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
         container.appendChild(div);
       });
-
-      const totalStars = allReposData.reduce((sum, r) => sum + r.stars, 0);
-      const totalIssues = allReposData.reduce((sum, r) => sum + r.issues, 0);
-      document.getElementById('repo-count').textContent = allReposData.length;
-      document.getElementById('star-count').textContent = totalStars;
-      document.getElementById('issue-count').textContent = totalIssues;
-      document.getElementById('commit-count').textContent = totalContributions.toLocaleString();
     }
 
-    function buildActiveRepos() {
+    function buildActiveRepos(repos) {
       const container = document.getElementById('active-repos');
-      activeReposData.forEach(repo => {
+      document.getElementById('active-count').textContent = repos.length;
+      container.innerHTML = '';
+      repos.forEach(repo => {
         const card = document.createElement('a');
         card.href = repo.url;
         card.target = '_blank';
         card.className = 'repo-card block px-2 py-1.5 rounded-lg bg-white/5 border border-white/5 hover:border-blue-500/30';
-
         const langHtml = repo.lang ? '<span class="w-1.5 h-1.5 rounded-full ' + esc(langColor(repo.lang)) + '"></span><span class="text-xs text-gray-400">' + esc(repo.lang) + '</span>' : '';
         const privateBadge = repo.private ? '<span class="text-xs px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-400">🔒</span>' : '';
-
         card.innerHTML = `
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-1.5 min-w-0">
@@ -381,21 +317,30 @@
       });
     }
 
-    function buildTrending() {
+    function buildStats(repos) {
+      const totalStars = repos.reduce((sum, r) => sum + (r.stars || 0), 0);
+      const totalIssues = repos.reduce((sum, r) => sum + (r.issues || 0), 0);
+      document.getElementById('repo-count').textContent = repos.length;
+      document.getElementById('star-count').textContent = totalStars;
+      document.getElementById('issue-count').textContent = totalIssues;
+    }
+
+    function buildTrending(trendingRepos) {
       const container = document.getElementById('trending');
-      trendingData.forEach(repo => {
+      container.innerHTML = '';
+      (trendingRepos || []).forEach(repo => {
         const card = document.createElement('a');
-        card.href = 'https://github.com/' + repo.name;
+        card.href = repo.html_url || 'https://github.com/' + repo.full_name;
         card.target = '_blank';
         card.className = 'trend-card flex items-center gap-2 p-2 rounded-lg bg-white/5 border border-white/5';
         card.innerHTML = `
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-1.5">
-              <span class="text-xs font-medium text-white truncate">${esc(repo.name.split('/')[1])}</span>
+              <span class="text-xs font-medium text-white truncate">${esc(repo.name || repo.full_name?.split('/')[1])}</span>
             </div>
             <div class="flex items-center gap-2 mt-0.5">
-              <div class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full ${repo.langColor}"></span><span class="text-xs text-gray-500">${esc(repo.lang)}</span></div>
-              <div class="flex items-center gap-0.5 text-yellow-400"><svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg><span class="text-xs">${esc(repo.stars)}</span></div>
+              <div class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full ${esc(repo.lang ? langColor(repo.lang) : 'bg-gray-400')}"></span><span class="text-xs text-gray-500">${esc(repo.lang || 'Unknown')}</span></div>
+              <div class="flex items-center gap-0.5 text-yellow-400"><svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg><span class="text-xs">${esc(String(repo.stargazers_count > 999 ? (repo.stargazers_count/1000).toFixed(1) + 'k' : repo.stargazers_count))}</span></div>
             </div>
           </div>
         `;
@@ -403,21 +348,89 @@
       });
     }
 
-    buildActivityMap();
-    buildActiveRepos();
-    buildTrending();
-
-    document.getElementById('btn-refresh').addEventListener('click', () => {
+    async function loadData() {
       const icon = document.getElementById('refresh-icon');
       icon.classList.add('spin');
-      buildActivityMap();
-      buildActiveRepos();
-      buildTrending();
+
+      try {
+        const data = await window.electronAPI.fetchGitHubData(config);
+        if (data.error) throw new Error(data.error);
+
+        // Process events into daily commit counts
+        const eventsByDate = {};
+        let totalCommits = 0;
+        (data.events || []).forEach(event => {
+          if (event.type === 'PushEvent') {
+            const date = event.created_at.split('T')[0];
+            const count = (event.payload?.commits || []).length;
+            eventsByDate[date] = (eventsByDate[date] || 0) + count;
+            totalCommits += count;
+          }
+        });
+
+        // Process repos
+        const activeRepos = (data.repos || []).slice(0, 11).map(r => ({
+          name: r.name,
+          desc: r.description || '',
+          lang: r.language,
+          stars: r.stargazers_count,
+          issues: r.open_issues_count,
+          pushed: r.pushed_at,
+          url: r.html_url,
+          private: r.private
+        }));
+
+        const allRepos = data.repos || [];
+
+        buildActivityMap(eventsByDate);
+        buildActiveRepos(activeRepos);
+        buildStats(allRepos);
+        buildTrending(data.trending?.items || []);
+
+        document.getElementById('commit-count').textContent = totalCommits.toLocaleString();
+      } catch (err) {
+        console.error('Failed to load GitHub data:', err);
+        // Fallback to static data
+        buildActivityMap(staticActivity);
+        buildActiveRepos(staticRepos);
+        buildStats(staticAllRepos);
+        buildTrending(staticTrending);
+        document.getElementById('commit-count').textContent = '?';
+      }
+
       setTimeout(() => icon.classList.remove('spin'), 800);
+    }
+
+    // Config panel
+    document.getElementById('btn-config').addEventListener('click', () => {
+      document.getElementById('input-username').value = config.username;
+      document.getElementById('input-token').value = config.token;
+      document.getElementById('config-panel').classList.add('open');
+    });
+    document.getElementById('btn-config-close').addEventListener('click', () => {
+      document.getElementById('config-panel').classList.remove('open');
+    });
+    document.getElementById('btn-save-config').addEventListener('click', () => {
+      config.username = document.getElementById('input-username').value.trim() || 'benclawbot';
+      config.token = document.getElementById('input-token').value.trim();
+      localStorage.setItem('gh-widget-config', JSON.stringify(config));
+      document.getElementById('config-panel').classList.remove('open');
+      loadData();
     });
 
+    // Title bar buttons
+    document.getElementById('btn-refresh').addEventListener('click', loadData);
     document.getElementById('btn-minimize').addEventListener('click', () => window.electronAPI.minimize());
     document.getElementById('btn-close').addEventListener('click', () => window.electronAPI.close());
+
+    // Load saved config
+    const saved = localStorage.getItem('gh-widget-config');
+    if (saved) {
+      try { config = JSON.parse(saved); } catch {}
+    }
+
+    // Initial load
+    loadData();
   </script>
 </body>
 </html>
