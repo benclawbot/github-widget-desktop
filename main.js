@@ -152,11 +152,32 @@ ipcMain.on('close-window', () => {
 
 ipcMain.handle('github-fetch-data', async (event, { username, token }) => {
   try {
-    // Fetch user events (for contribution activity)
-    const events = await fetchGitHub(`/users/${username}/events?per_page=100&page=1`, token);
+    // Fetch all pages of user events (activity map - need several months)
+    let allEvents = [];
+    for (let page = 1; page <= 10; page++) {
+      const ev = await fetchGitHub(`/users/${username}/events?per_page=100&page=${page}`, token);
+      if (Array.isArray(ev)) {
+        allEvents = allEvents.concat(ev);
+        if (ev.length < 100) break;
+      } else {
+        break;
+      }
+    }
 
-    // Fetch repos (for active repos and stats)
-    const repos = await fetchGitHub(`/users/${username}/repos?sort=pushed&per_page=30`, token);
+    // Fetch ALL repos (paginate through all pages)
+    let allRepos = [];
+    for (let page = 1; page <= 10; page++) {
+      const r = await fetchGitHub(`/users/${username}/repos?sort=pushed&per_page=100&page=${page}&type=all`, token);
+      if (Array.isArray(r)) {
+        allRepos = allRepos.concat(r);
+        if (r.length < 100) break;
+      } else {
+        break;
+      }
+    }
+
+    // Fetch user profile for total stats
+    const user = await fetchGitHub(`/users/${username}`, token);
 
     // Fetch trending (top starred repos created in last 7 days)
     const sevenDaysAgo = new Date();
@@ -164,7 +185,7 @@ ipcMain.handle('github-fetch-data', async (event, { username, token }) => {
     const dateStr = sevenDaysAgo.toISOString().split('T')[0];
     const trending = await fetchGitHub(`/search/repositories?q=created:>${dateStr}+stars:>10&sort=stars&order=desc&per_page=6`, token);
 
-    return { events, repos, trending };
+    return { events: allEvents, repos: allRepos, trending, user };
   } catch (err) {
     return { error: err.message };
   }
