@@ -31,8 +31,13 @@ function fetchGitHub(reqPath, token) {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch { resolve({ error: 'Parse error', raw: data }); }
+        let parsed;
+        try { parsed = JSON.parse(data); } catch { parsed = { error: 'Parse error', raw: data }; }
+        if (res.statusCode >= 400) {
+          reject({ httpError: true, status: res.statusCode, message: parsed.message || parsed.error || `HTTP ${res.statusCode}`, data: parsed });
+          return;
+        }
+        resolve(parsed);
       });
     });
     req.on('error', reject);
@@ -196,11 +201,11 @@ ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivi
       while (hasMore) {
         try {
           const commits = await fetchGitHub(
-            `/${username}/${repo.name}/commits?since=${ninetyDaysStr}&per_page=100&page=${page}`,
+            `/repos/${username}/${repo.name}/commits?since=${ninetyDaysStr}&per_page=100&page=${page}`,
             token
           );
 
-          if (commits.error || !Array.isArray(commits)) {
+          if (!Array.isArray(commits)) {
             hasMore = false;
             break;
           }

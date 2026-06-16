@@ -8,10 +8,13 @@ A lightweight GitHub dashboard widget for Windows — always accessible on your 
 
 ## Features
 
-- **Activity heatmap** — commit history visualization (Feb–Jun 2026)
+- **Activity heatmap** — commit history visualization across all your repos (cached locally)
 - **Active repos** — recently pushed repositories with language, stars, and issues
 - **Quick stats** — total repos, stars, open issues, and contributions
 - **Trending repos** — today's trending GitHub projects
+- **Two refresh modes**:
+  - **Quick refresh** (🔄) — fetches recent events and merges with cached activity. Fast, no rate limit pressure.
+  - **Full sync** (⟳) — scans every repo's commit history to build a complete activity map. Runs on first launch, then only fetches deltas.
 - **System tray integration** — double-click tray icon to restore, right-click for menu
 - **Custom title bar** — minimize and close buttons (hide to tray, don't quit)
 - **Toggle always-on-top** — right-click tray → Toggle Always on Top
@@ -38,12 +41,20 @@ npm run build   # build .exe installer
 
 | Action | Result |
 |--------|--------|
-| Minimize button | Hides to system tray |
-| Close button | Hides to system tray |
+| 🔄 button | Quick refresh — recent events only, merged with cache |
+| ⟳ button | Full sync — scan every repo, rebuild complete activity map |
+| ⚙ button | Settings — GitHub username and personal access token |
+| Minimize / Close button | Hides to system tray |
 | Double-click tray icon | Restore widget |
 | Right-click tray icon | Show menu (Show, Toggle Always on Top, Quit) |
-| Quit menu item | Fully exits the app |
+
+## Notes
+
+- A GitHub token with `repo` scope is required to access private repositories and to avoid rate limits. Get one at GitHub → Settings → Developer Settings → Personal Access Tokens.
+- The full sync may take a few minutes the first time (it iterates all your repos and pulls commit history). Subsequent quick refreshes only fetch the delta.
+- Activity data is cached in `localStorage` so it persists between launches.
 
 ## Recent Changes
 
+- [1.0.1] Fix full sync API path (`/users/{u}/repos/{r}/commits` → `/repos/{u}/{r}/commits`) and fix listener leak in preload (2026-06-17)
 - [1.0.0] Initial release — Electron desktop widget with activity map, active repos, quick stats, trending repos, and system tray integration (2026-06-16)
