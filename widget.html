@@ -56,6 +56,11 @@
       <span class="text-sm font-medium text-gray-300">GitHub Widget</span>
     </div>
     <div class="flex items-center gap-1">
+      <button id="btn-sync" class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors" title="Full Sync (rebuild activity map)">
+        <svg id="sync-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+      </button>
       <button id="btn-config" class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors" title="Settings">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
@@ -103,6 +108,23 @@
         <p class="text-xs text-gray-500">Token needs <b>repo</b> scope for private repos. Get one at GitHub → Settings → Developer Settings → Personal Access Tokens → Generate new token → Select "repo" scope.</p>
         <button id="btn-save-config" class="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-medium text-white transition-colors">Save & Refresh</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Sync Progress Overlay -->
+  <div id="sync-overlay" class="fixed inset-0 z-[200] bg-black/90 flex flex-col items-center justify-center hidden">
+    <div class="text-center">
+      <svg id="sync-spinner" class="w-8 h-8 mx-auto mb-3 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      <p id="sync-status" class="text-sm text-gray-300 mb-1">Syncing commit history...</p>
+      <p id="sync-repo" class="text-xs text-gray-500 mb-3"></p>
+      <div class="w-48 h-1.5 bg-white/10 rounded-full overflow-hidden">
+        <div id="sync-progress-bar" class="h-full bg-blue-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+      </div>
+      <p id="sync-count" class="text-xs text-gray-500 mt-2"></p>
+      <p id="sync-last" class="text-xs text-gray-600 mt-1"></p>
     </div>
   </div>
 
@@ -246,7 +268,9 @@
       }
 
       const today = new Date().toISOString().split('T')[0];
-      document.getElementById('activity-dates').textContent = `${allDays[0].date} — ${today}`;
+      const lastSync = localStorage.getItem('gh-last-sync');
+      const syncStr = lastSync ? ` (synced ${new Date(lastSync).toLocaleDateString()})` : '';
+      document.getElementById('activity-dates').textContent = `${allDays[0].date} — ${today}${syncStr}`;
 
       monthLabels.innerHTML = '';
       let currentMonth = -1, monthStartIndex = 0;
@@ -395,7 +419,18 @@
         const totalStars = allRepos.reduce((sum, r) => sum + (r.stargazers_count || 0), 0);
         const totalIssues = allRepos.reduce((sum, r) => sum + (r.open_issues_count || 0), 0);
 
-        buildActivityMap(eventsByDate);
+        // Merge cached activity with fresh event data
+        const cachedActivityStr = localStorage.getItem('gh-activity');
+        let cachedActivity = {};
+        try { cachedActivity = JSON.parse(cachedActivityStr) || {}; } catch {}
+
+        // Fresh events (last ~300 from events API) merged into cached
+        const mergedActivity = { ...cachedActivity };
+        Object.entries(eventsByDate).forEach(([date, count]) => {
+          mergedActivity[date] = (mergedActivity[date] || 0) + count;
+        });
+
+        buildActivityMap(mergedActivity);
         buildActiveRepos(activeRepos);
         buildStats(allRepos.length, totalStars, totalIssues);
         buildTrending(data.trending?.items || []);
@@ -403,7 +438,10 @@
         document.getElementById('commit-count').textContent = totalCommits.toLocaleString();
       } catch (err) {
         console.error('Failed to load GitHub data:', err);
-        buildActivityMap(staticActivity);
+        const cachedActivityStr = localStorage.getItem('gh-activity');
+        let cachedActivity = {};
+        try { cachedActivity = JSON.parse(cachedActivityStr) || {}; } catch {}
+        buildActivityMap(Object.keys(cachedActivity).length ? cachedActivity : staticActivity);
         buildActiveRepos(staticRepos);
         buildStats(staticAllRepos.length, staticAllRepos.reduce((s,r) => s+r.stars, 0), staticAllRepos.reduce((s,r) => s+r.issues, 0));
         buildTrending(staticTrending);
@@ -411,6 +449,85 @@
       }
 
       setTimeout(() => icon.classList.remove('spin'), 800);
+    }
+
+    async function fullSync() {
+      const overlay = document.getElementById('sync-overlay');
+      const progressBar = document.getElementById('sync-progress-bar');
+      const statusEl = document.getElementById('sync-status');
+      const repoEl = document.getElementById('sync-repo');
+      const countEl = document.getElementById('sync-count');
+
+      const cachedActivityStr = localStorage.getItem('gh-activity');
+      let cachedActivity = {};
+      try { cachedActivity = JSON.parse(cachedActivityStr) || {}; } catch {}
+
+      overlay.classList.remove('hidden');
+
+      // Listen for progress updates
+      window.electronAPI.onSyncProgress(({ current, total, repo }) => {
+        const pct = Math.round((current / total) * 100);
+        progressBar.style.width = pct + '%';
+        statusEl.textContent = `Scanning repos...`;
+        repoEl.textContent = `${repo} (${current}/${total})`;
+        countEl.textContent = '';
+      });
+
+      try {
+        const result = await window.electronAPI.fullSync({ username: config.username, token: config.token, cachedActivity });
+
+        if (result.error) {
+          if (result.rateLimit) {
+            statusEl.textContent = `Rate limited. Wait ${result.waitSec}s.`;
+            repoEl.textContent = '';
+            setTimeout(() => overlay.classList.add('hidden'), 2000);
+          } else {
+            statusEl.textContent = `Error: ${result.error}`;
+            repoEl.textContent = '';
+            setTimeout(() => overlay.classList.add('hidden'), 3000);
+          }
+          return;
+        }
+
+        // Cache the full activity map
+        localStorage.setItem('gh-activity', JSON.stringify(result.activity));
+        localStorage.setItem('gh-last-sync', result.lastSync);
+
+        // Build UI from full sync results
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const weekAgoStr = sevenDaysAgo.toISOString();
+
+        const activeRepos = (result.repos || [])
+          .filter(r => r.pushed_at >= weekAgoStr)
+          .slice(0, 15)
+          .map(r => ({
+            name: r.name, desc: r.description || '', lang: r.language,
+            stars: r.stargazers_count, issues: r.open_issues_count,
+            pushed: r.pushed_at, url: r.html_url, private: r.private
+          }));
+
+        const allRepos = result.repos || [];
+        buildActivityMap(result.activity);
+        buildActiveRepos(activeRepos);
+        buildStats(allRepos.length, allRepos.reduce((s,r) => s+(r.stargazers_count||0), 0), allRepos.reduce((s,r) => s+(r.open_issues_count||0), 0));
+        buildTrending(result.trending?.items || []);
+        document.getElementById('commit-count').textContent = (result.totalCommits || 0).toLocaleString();
+
+        const lastSync = localStorage.getItem('gh-last-sync');
+        if (lastSync) {
+          const d = new Date(lastSync);
+          document.getElementById('sync-last').textContent = `Last full sync: ${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+        }
+        statusEl.textContent = `Sync complete!`;
+        repoEl.textContent = '';
+        progressBar.style.width = '100%';
+        setTimeout(() => overlay.classList.add('hidden'), 2000);
+      } catch (err) {
+        statusEl.textContent = `Error: ${err.message}`;
+        repoEl.textContent = '';
+        setTimeout(() => overlay.classList.add('hidden'), 3000);
+      }
     }
 
     // Config panel
@@ -431,12 +548,28 @@
     });
 
     // Title bar buttons
+    document.getElementById('btn-sync').addEventListener('click', fullSync);
     document.getElementById('btn-refresh').addEventListener('click', loadData);
     document.getElementById('btn-minimize').addEventListener('click', () => window.electronAPI.minimize());
     document.getElementById('btn-close').addEventListener('click', () => window.electronAPI.close());
 
     // Load saved config
     const saved = localStorage.getItem('gh-widget-config');
+    if (saved) {
+      try { config = JSON.parse(saved); } catch {}
+    }
+
+    // Auto-prompt full sync on first launch (no cached activity)
+    const hasCachedActivity = !!localStorage.getItem('gh-activity');
+    if (!hasCachedActivity && config.username) {
+      setTimeout(() => {
+        document.getElementById('sync-overlay').classList.remove('hidden');
+        document.getElementById('sync-status').textContent = 'First launch: tap the sync icon to rebuild activity map from all repos.';
+        document.getElementById('sync-repo').textContent = '';
+        document.getElementById('sync-progress-bar').style.width = '0%';
+        setTimeout(() => document.getElementById('sync-overlay').classList.add('hidden'), 4000);
+      }, 1500);
+    }
     if (saved) {
       try { config = JSON.parse(saved); } catch {}
     }

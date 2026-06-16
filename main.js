@@ -5,17 +5,29 @@ const https = require('https');
 let win, tray;
 let isQuitting = false;
 
-function fetchGitHub(path, token) {
+function fetchGitHub(reqPath, token) {
   return new Promise((resolve, reject) => {
     const headers = { 'User-Agent': 'GitHub-Widget-Desktop' };
     if (token) headers['Authorization'] = `token ${token}`;
     const options = {
       hostname: 'api.github.com',
-      path,
+      path: reqPath,
       method: 'GET',
       headers
     };
     const req = https.request(options, (res) => {
+      if (res.statusCode === 403 && res.headers['x-ratelimit-remaining'] === '0') {
+        const reset = res.headers['x-ratelimit-reset'];
+        const waitSec = reset ? Math.max(1, parseInt(reset) - Math.floor(Date.now() / 1000)) : 60;
+        res.resume();
+        reject({ rateLimited: true, waitSec });
+        return;
+      }
+      if (res.statusCode === 403) {
+        res.resume();
+        reject({ rateLimited: true, waitSec: 60 });
+        return;
+      }
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
@@ -26,6 +38,10 @@ function fetchGitHub(path, token) {
     req.on('error', reject);
     req.end();
   });
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
 }
 
 function createWindow() {
@@ -80,10 +96,10 @@ function createTray() {
     const size = { width: 16, height: 16 };
     const canvas = Buffer.alloc(size.width * size.height * 4);
     for (let i = 0; i < canvas.length; i += 4) {
-      canvas[i] = 88;     // R - GitHub blue
-      canvas[i + 1] = 166; // G
-      canvas[i + 2] = 255; // B
-      canvas[i + 3] = 255; // A
+      canvas[i] = 88;
+      canvas[i + 1] = 166;
+      canvas[i + 2] = 255;
+      canvas[i + 3] = 255;
     }
     trayIcon = nativeImage.createFromBuffer(canvas, size);
   }
@@ -92,99 +108,150 @@ function createTray() {
   tray.setToolTip('GitHub Widget');
 
   const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Show Widget',
-      click: () => {
-        if (win) {
-          win.show();
-          win.focus();
-        }
-      }
-    },
-    {
-      label: 'Toggle Always on Top',
-      type: 'checkbox',
-      checked: true,
-      click: (menuItem) => {
-        if (win) win.setAlwaysOnTop(menuItem.checked);
-      }
-    },
+    { label: 'Show Widget', click: () => { if (win) { win.show(); win.focus(); } } },
+    { label: 'Toggle Always on Top', type: 'checkbox', checked: false, click: (m) => { if (win) win.setAlwaysOnTop(m.checked); } },
     { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      }
-    }
+    { label: 'Quit', click: () => { isQuitting = true; app.quit(); } }
   ]);
 
   tray.setContextMenu(contextMenu);
-
-  tray.on('double-click', () => {
-    if (win) {
-      win.show();
-      win.focus();
-    }
-  });
+  tray.on('double-click', () => { if (win) { win.show(); win.focus(); } });
 }
 
-app.whenReady().then(() => {
-  createWindow();
-  createTray();
-});
+app.whenReady().then(() => { createWindow(); createTray(); });
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+ipcMain.on('minimize-window', () => { if (win) win.hide(); });
+ipcMain.on('close-window', () => { if (win) win.hide(); });
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
-
-ipcMain.on('minimize-window', () => {
-  if (win) win.hide();
-});
-
-ipcMain.on('close-window', () => {
-  if (win) win.hide();
-});
-
+// Standard fetch — used for live updates (delta)
 ipcMain.handle('github-fetch-data', async (event, { username, token }) => {
   try {
-    // Fetch all pages of user events (activity map - GitHub stores ~300 events for public, more with token)
+    const since = new Date();
+    since.setDate(since.getDate() - 90);
+    const sinceStr = since.toISOString();
+
+    // Recent events only (delta)
     let allEvents = [];
-    for (let page = 1; page <= 30; page++) {
-      const ev = await fetchGitHub(`/users/${username}/events?per_page=100&page=${page}`, token);
-      if (Array.isArray(ev) && ev.length > 0) {
-        allEvents = allEvents.concat(ev);
-      } else {
-        break;
-      }
+    for (let page = 1; page <= 5; page++) {
+      const ev = await fetchGitHub(`/users/${username}/events?per_page=100&page=${page}&since=${sinceStr}`, token);
+      if (Array.isArray(ev) && ev.length > 0) allEvents = allEvents.concat(ev);
+      else break;
     }
 
-    // Fetch ALL repos (paginate through all pages)
+    // Recent repos
     let allRepos = [];
-    for (let page = 1; page <= 10; page++) {
+    for (let page = 1; page <= 5; page++) {
       const r = await fetchGitHub(`/users/${username}/repos?sort=pushed&per_page=100&page=${page}&type=all`, token);
-      if (Array.isArray(r) && r.length > 0) {
-        allRepos = allRepos.concat(r);
-      } else {
-        break;
-      }
+      if (Array.isArray(r) && r.length > 0) allRepos = allRepos.concat(r);
+      else break;
     }
 
-    // Fetch user profile for total stats
     const user = await fetchGitHub(`/users/${username}`, token);
-
-    // Fetch trending (top starred repos created in last 7 days)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const dateStr = sevenDaysAgo.toISOString().split('T')[0];
-    const trending = await fetchGitHub(`/search/repositories?q=created:>${dateStr}+stars:>10&sort=stars&order=desc&per_page=6`, token);
+    const trending = await fetchGitHub(`/search/repositories?q=created:>${sevenDaysAgo.toISOString().split('T')[0]}+stars:>10&sort=stars&order=desc&per_page=6`, token);
 
     return { events: allEvents, repos: allRepos, trending, user };
   } catch (err) {
+    if (err.rateLimited) {
+      return { error: `Rate limited. Retry in ${err.waitSec}s.`, rateLimit: true, waitSec: err.waitSec };
+    }
+    return { error: err.message };
+  }
+});
+
+// Full sync — fetches commit history from every repo to build complete activity map
+ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivity }) => {
+  const progressCallback = event.sender;
+
+  try {
+    // Fetch all repos first
+    let allRepos = [];
+    for (let page = 1; page <= 10; page++) {
+      const r = await fetchGitHub(`/users/${username}/repos?sort=pushed&per_page=100&page=${page}&type=all`, token);
+      if (Array.isArray(r) && r.length > 0) allRepos = allRepos.concat(r);
+      else break;
+    }
+
+    const activityByDate = cachedActivity ? { ...cachedActivity } : {};
+    const now = new Date();
+    const ninetyDaysAgo = new Date(now);
+    ninetyDaysAgo.setDate(now.getDate() - 90);
+    const ninetyDaysStr = ninetyDaysAgo.toISOString();
+
+    let reposProcessed = 0;
+    const totalRepos = allRepos.length;
+
+    for (const repo of allRepos) {
+      reposProcessed++;
+      progressCallback.send('sync-progress', { current: reposProcessed, total: totalRepos, repo: repo.name });
+
+      // Fetch commits for this repo (last 90 days, paginated)
+      let page = 1;
+      let hasMore = true;
+      let repoPageCount = 0;
+
+      while (hasMore) {
+        try {
+          const commits = await fetchGitHub(
+            `/${username}/${repo.name}/commits?since=${ninetyDaysStr}&per_page=100&page=${page}`,
+            token
+          );
+
+          if (commits.error || !Array.isArray(commits)) {
+            hasMore = false;
+            break;
+          }
+
+          if (commits.length === 0) break;
+
+          for (const commit of commits) {
+            const date = commit.commit?.author?.date;
+            if (date) {
+              const dateStr = date.split('T')[0];
+              activityByDate[dateStr] = (activityByDate[dateStr] || 0) + 1;
+            }
+          }
+
+          page++;
+          repoPageCount++;
+          hasMore = commits.length === 100 && page <= 10;
+
+          // Small delay to avoid hitting rate limits
+          await sleep(100);
+        } catch (err) {
+          if (err.rateLimited) {
+            // Wait and retry
+            await sleep(err.waitSec * 1000);
+          } else {
+            hasMore = false;
+          }
+        }
+      }
+
+      // Small inter-repo delay
+      await sleep(50);
+    }
+
+    const totalCommits = Object.values(activityByDate).reduce((a, b) => a + b, 0);
+    const trending = await fetchGitHub(
+      `/search/repositories?q=created:>${new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]}+stars:>10&sort=stars&order=desc&per_page=6`,
+      token
+    );
+
+    return {
+      activity: activityByDate,
+      repos: allRepos,
+      trending,
+      lastSync: now.toISOString(),
+      totalCommits
+    };
+  } catch (err) {
+    if (err.rateLimited) {
+      return { error: `Rate limited. Retry in ${err.waitSec}s.`, rateLimit: true, waitSec: err.waitSec };
+    }
     return { error: err.message };
   }
 });
