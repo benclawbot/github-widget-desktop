@@ -152,13 +152,12 @@ ipcMain.on('close-window', () => {
 
 ipcMain.handle('github-fetch-data', async (event, { username, token }) => {
   try {
-    // Fetch all pages of user events (activity map - need several months)
+    // Fetch all pages of user events (activity map - GitHub stores ~300 events for public, more with token)
     let allEvents = [];
-    for (let page = 1; page <= 10; page++) {
+    for (let page = 1; page <= 30; page++) {
       const ev = await fetchGitHub(`/users/${username}/events?per_page=100&page=${page}`, token);
-      if (Array.isArray(ev)) {
+      if (Array.isArray(ev) && ev.length > 0) {
         allEvents = allEvents.concat(ev);
-        if (ev.length < 100) break;
       } else {
         break;
       }
@@ -168,9 +167,8 @@ ipcMain.handle('github-fetch-data', async (event, { username, token }) => {
     let allRepos = [];
     for (let page = 1; page <= 10; page++) {
       const r = await fetchGitHub(`/users/${username}/repos?sort=pushed&per_page=100&page=${page}&type=all`, token);
-      if (Array.isArray(r)) {
+      if (Array.isArray(r) && r.length > 0) {
         allRepos = allRepos.concat(r);
-        if (r.length < 100) break;
       } else {
         break;
       }
