@@ -210,8 +210,12 @@
     ];
     const staticAllRepos = [{name: 'github-widget-desktop', stars: 0, issues: 0}];
     const staticTrending = [
-      {name: 'anthropics/anthropic-cookbook', desc: 'Examples for building with Anthropic models', stars: '12.4k', lang: 'Jupyter Notebook', langColor: 'bg-orange-400'},
-      {name: 'ollama/ollama', desc: 'Run Llama 3, Mistral locally', stars: '28.5k', lang: 'Go', langColor: 'bg-cyan-500'},
+      {name: 'DeusData/codebase-memory-mcp', full_name: 'DeusData/codebase-memory-mcp', html_url: 'https://github.com/DeusData/codebase-memory-mcp', owner: {login: 'DeusData'}, description: 'High-performance code intelligence MCP server. Indexes codebases into a persistent knowledge graph — average repo in milliseconds. 158 languages, sub-ms queries, 99% fewer tokens. Single static binary, zero dependencies.', language: 'C', stargazers_count: 4374, stars_today: 367},
+      {name: 'n0-computer/iroh', full_name: 'n0-computer/iroh', html_url: 'https://github.com/n0-computer/iroh', owner: {login: 'n0-computer'}, description: 'IP addresses break, dial keys instead. Modular networking stack in Rust.', language: 'Rust', stargazers_count: 9499, stars_today: 422},
+      {name: 'Panniantong/Agent-Reach', full_name: 'Panniantong/Agent-Reach', html_url: 'https://github.com/Panniantong/Agent-Reach', owner: {login: 'Panniantong'}, description: 'Give your AI agent eyes to see the entire internet. Read & search Twitter, Reddit, YouTube, GitHub, Bilibili, XiaoHongShu — one CLI, zero API fees.', language: 'Python', stargazers_count: 32734, stars_today: 2025},
+      {name: 'obra/superpowers', full_name: 'obra/superpowers', html_url: 'https://github.com/obra/superpowers', owner: {login: 'obra'}, description: 'An agentic skills framework & software development methodology that works.', language: 'Shell', stargazers_count: 230601, stars_today: 1109},
+      {name: 'mattpocock/skills', full_name: 'mattpocock/skills', html_url: 'https://github.com/mattpocock/skills', owner: {login: 'mattpocock'}, description: 'Skills for Real Engineers. Straight from my .claude directory.', language: 'Shell', stargazers_count: 132860, stars_today: 1849},
+      {name: 'freeCodeCamp/freeCodeCamp', full_name: 'freeCodeCamp/freeCodeCamp', html_url: 'https://github.com/freeCodeCamp/freeCodeCamp', owner: {login: 'freeCodeCamp'}, description: "freeCodeCamp.org's open-source codebase and curriculum. Learn math, programming, and computer science for free.", language: 'TypeScript', stargazers_count: 448977, stars_today: 764},
     ];
 
     let config = { username: 'benclawbot', token: '' };
@@ -251,15 +255,34 @@
       const monthLabels = document.getElementById('month-labels');
       const tooltip = document.getElementById('tooltip');
       const endDate = new Date();
+      endDate.setHours(0, 0, 0, 0);
+
+      // Cell sizing must match .w-2.5 (10px) and gap-1 (4px) on .activity-map.
+      const cellSize = 10;
+      const gap = 4;
+      const colWidth = cellSize + gap;
+
+      // Fit as many weeks as the container can hold, capped so we don't overflow.
+      const containerWidth = (container.parentElement && container.parentElement.clientWidth) || 256;
+      const numWeeks = Math.max(13, Math.floor((containerWidth + gap) / colWidth));
+
+      // Align start date to a Sunday so each grid column is one calendar week.
       const startDate = new Date(endDate);
-      startDate.setDate(endDate.getDate() - 130);
-      const cellWidth = 11;
+      startDate.setDate(endDate.getDate() - numWeeks * 7 + 1);
+      startDate.setDate(startDate.getDate() - startDate.getDay());
+
       const allDays = [];
       const current = new Date(startDate);
-
       while (current <= endDate) {
         const dateStr = current.toISOString().split('T')[0];
-        allDays.push({ date: dateStr, count: eventsByDate[dateStr] || 0, month: current.getMonth() });
+        const daysSinceStart = Math.round((current - startDate) / 86400000);
+        allDays.push({
+          date: dateStr,
+          count: eventsByDate[dateStr] || 0,
+          month: current.getMonth(),
+          dayOfWeek: current.getDay(),
+          weekIndex: Math.floor(daysSinceStart / 7),
+        });
         current.setDate(current.getDate() + 1);
       }
 
@@ -268,35 +291,28 @@
       const syncStr = lastSync ? ` (synced ${new Date(lastSync).toLocaleDateString()})` : '';
       document.getElementById('activity-dates').textContent = `${allDays[0].date} — ${today}${syncStr}`;
 
-      monthLabels.innerHTML = '';
-      let currentMonth = -1, monthStartIndex = 0;
-      allDays.forEach((day, i) => {
-        if (day.month !== currentMonth) {
-          if (currentMonth !== -1) {
-            const span = document.createElement('span');
-            span.textContent = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][currentMonth];
-            span.style.position = 'absolute';
-            span.style.left = monthStartIndex * cellWidth + 'px';
-            span.className = 'text-xs text-gray-500';
-            monthLabels.appendChild(span);
-          }
-          currentMonth = day.month;
-          monthStartIndex = i;
-        }
-      });
-      const lastSpan = document.createElement('span');
-      lastSpan.textContent = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][currentMonth];
-      lastSpan.style.position = 'absolute';
-      lastSpan.style.left = monthStartIndex * cellWidth + 'px';
-      lastSpan.className = 'text-xs text-gray-500';
-      monthLabels.appendChild(lastSpan);
-      monthLabels.style.position = 'relative';
-      monthLabels.style.height = '16px';
+      // Use CSS Grid so month-label columns line up exactly with activity-cell columns.
+      container.style.display = 'grid';
+      container.style.gridTemplateColumns = `repeat(${numWeeks}, ${cellSize}px)`;
+      container.style.gridTemplateRows = `repeat(7, ${cellSize}px)`;
+      container.style.columnGap = `${gap}px`;
+      container.style.rowGap = `${gap}px`;
+      while (container.firstChild) container.removeChild(container.firstChild);
 
-      container.innerHTML = '';
+      monthLabels.style.display = 'grid';
+      monthLabels.style.gridTemplateColumns = `repeat(${numWeeks}, ${cellSize}px)`;
+      monthLabels.style.columnGap = `${gap}px`;
+      monthLabels.style.alignItems = 'end';
+      monthLabels.style.height = '16px';
+      while (monthLabels.firstChild) monthLabels.removeChild(monthLabels.firstChild);
+
+      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const seenMonths = new Set();
       allDays.forEach(day => {
         const div = document.createElement('div');
         div.className = 'w-2.5 h-2.5 rounded-sm activity-cell ' + getActivityColor(day.count);
+        div.style.gridColumn = day.weekIndex + 1;
+        div.style.gridRow = day.dayOfWeek + 1;
         div.addEventListener('mouseenter', () => {
           const date = new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
           const commits = day.count === 1 ? '1 commit' : day.count + ' commits';
@@ -308,6 +324,18 @@
         });
         div.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
         container.appendChild(div);
+
+        // Place a month label only at the first week that contains that month.
+        if (!seenMonths.has(day.month)) {
+          seenMonths.add(day.month);
+          const span = document.createElement('span');
+          span.textContent = monthNames[day.month];
+          span.style.gridColumn = day.weekIndex + 1;
+          span.style.gridRow = '1';
+          span.style.justifySelf = 'start';
+          span.className = 'text-xs text-gray-500';
+          monthLabels.appendChild(span);
+        }
       });
     }
 
@@ -345,25 +373,30 @@
 
     function buildTrending(trendingRepos) {
       const container = document.getElementById('trending');
-      container.innerHTML = '';
+      while (container.firstChild) container.removeChild(container.firstChild);
       (trendingRepos || []).forEach(repo => {
         const card = document.createElement('a');
         card.href = repo.html_url;
         card.target = '_blank';
         card.className = 'trend-card flex items-start gap-2 p-2 rounded-lg bg-white/5 border border-white/5';
-        const desc = repo.description || repo.full_description || '';
-        const stars = repo.stargazers_count;
-        const lang = repo.language;
+        const desc = repo.description || repo.full_description || repo.desc || '';
+        const stars = repo.stargazers_count ?? repo.stars;
+        const lang = repo.language || repo.lang;
+        const starsToday = repo.stars_today || 0;
+        const owner = repo.owner?.login || (repo.full_name || repo.name || '').split('/')[0] || '';
+        const repoName = repo.name || (repo.full_name || '').split('/')[1] || repo.full_name || '';
+        const fmtStars = n => (typeof n === 'number' ? (n > 999 ? (n / 1000).toFixed(1) + 'k' : String(n)) : (n || ''));
         card.innerHTML = `
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-1.5 flex-wrap">
-              <span class="text-xs font-medium text-white truncate">${esc(repo.name)}</span>
-              <span class="text-xs text-gray-500 flex-shrink-0">${esc(repo.owner?.login || '')}</span>
+              <span class="text-xs font-medium text-white truncate">${esc(repoName)}</span>
+              <span class="text-xs text-gray-500 flex-shrink-0">${esc(owner)}</span>
             </div>
             ${desc ? `<p class="text-xs text-gray-400 truncate mt-0.5">${esc(desc)}</p>` : ''}
             <div class="flex items-center gap-2 mt-1">
               ${lang ? `<div class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full ${esc(langColor(lang))}"></span><span class="text-xs text-gray-500">${esc(lang)}</span></div>` : ''}
-              <div class="flex items-center gap-0.5 text-yellow-400"><svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg><span class="text-xs">${esc(String(stars > 999 ? (stars/1000).toFixed(1) + 'k' : stars))}</span></div>
+              <div class="flex items-center gap-0.5 text-yellow-400"><svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg><span class="text-xs">${esc(fmtStars(stars))}</span></div>
+              ${starsToday > 0 ? `<div class="flex items-center gap-0.5 text-emerald-400"><svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg><span class="text-xs">${esc(fmtStars(starsToday))} today</span></div>` : ''}
             </div>
           </div>
         `;

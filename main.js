@@ -49,6 +49,107 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// Fetch github.com/trending HTML — GitHub's search API can't replicate the
+// "most stars gained today" feed, so we scrape the trending page directly.
+function fetchTrendingPage() {
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'github.com',
+      path: '/trending?since=daily',
+      method: 'GET',
+      headers: { 'User-Agent': 'GitHub-Widget-Desktop', 'Accept': 'text/html' }
+    }, (res) => {
+      if (res.statusCode >= 400) {
+        res.resume();
+        reject(new Error(`HTTP ${res.statusCode}`));
+        return;
+      }
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve(data));
+    });
+    req.on('error', reject);
+    req.setTimeout(10000, () => req.destroy(new Error('Trending page fetch timed out')));
+    req.end();
+  });
+}
+
+// Regex-based parser for github.com/trending. Returns the same shape the
+// widget's buildTrending() expects: { html_url, full_name, name, owner, ... }.
+function parseTrendingHtml(html) {
+  const items = [];
+  const articleRe = /<article[^>]*class="Box-row"[\s\S]*?<\/article>/g;
+  const articles = html.match(articleRe) || [];
+
+  for (const article of articles) {
+    // The repo link is the first <a> inside the article's <h2> with exactly two path segments.
+    const hrefMatch = article.match(/<h2[^>]*>\s*<a[^>]*href="\/([^"\/]+)\/([^"\/]+)"[^>]*>/);
+    if (!hrefMatch) continue;
+    const owner = hrefMatch[1];
+    const name = hrefMatch[2];
+    const fullName = `${owner}/${name}`;
+
+    const descMatch = article.match(/<p\s+class="col-9[^"]*">\s*([\s\S]*?)\s*<\/p>/);
+    const description = descMatch ? descMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+
+    const langMatch = article.match(/<span\s+itemprop="programmingLanguage">\s*([^<]+?)\s*<\/span>/);
+    const language = langMatch ? langMatch[1].trim() : null;
+
+    // Star count lives after the closing </svg> of the stargazers <a>.
+    const starsMatch = article.match(/<a\s+href="\/[^"]+\/stargazers"[^>]*>[\s\S]*?<\/svg>\s*([\d,]+)\s*<\/a>/);
+    const stargazers_count = starsMatch ? parseInt(starsMatch[1].replace(/,/g, ''), 10) : 0;
+
+    // "stars today" span has data-view-component before class on GitHub's current markup.
+    const todayMatch = article.match(/<span[^>]*class="[^"]*d-inline-block[^"]*"[^>]*>[\s\S]*?([\d,]+)\s+stars?\s+(?:today|this week)\s*<\/span>/);
+    const stars_today = todayMatch ? parseInt(todayMatch[1].replace(/,/g, ''), 10) : 0;
+
+    items.push({
+      html_url: `https://github.com/${fullName}`,
+      full_name: fullName,
+      name,
+      owner: { login: owner },
+      description,
+      language,
+      stargazers_count,
+      stars_today,
+    });
+  }
+  return items;
+}
+
+async function fetchTrending(token) {
+  try {
+    const html = await fetchTrendingPage();
+    const items = parseTrendingHtml(html).slice(0, 6);
+    if (items.length === 0) throw new Error('No items parsed from trending page');
+    return { items, source: 'scrape' };
+  } catch (err) {
+    console.warn('[trending] scrape failed, falling back to search:', err.message);
+    try {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const search = await fetchGitHub(
+        `/search/repositories?q=pushed:>${sevenDaysAgo.toISOString().split('T')[0]}+stars:>100&sort=stars&order=desc&per_page=6`,
+        token
+      );
+      const items = (search.items || []).map(r => ({
+        html_url: r.html_url,
+        full_name: r.full_name,
+        name: r.name,
+        owner: { login: r.owner?.login },
+        description: r.description,
+        language: r.language,
+        stargazers_count: r.stargazers_count,
+        stars_today: 0,
+      }));
+      return { items, source: 'search' };
+    } catch (fallbackErr) {
+      console.warn('[trending] search fallback also failed:', fallbackErr.message);
+      return { items: [], source: 'none' };
+    }
+  }
+}
+
 function createWindow() {
   const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
 
@@ -155,9 +256,7 @@ ipcMain.handle('github-fetch-data', async (event, { username, token }) => {
     }
 
     const user = await fetchGitHub(`/users/${username}`, token);
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const trending = await fetchGitHub(`/search/repositories?q=created:>${sevenDaysAgo.toISOString().split('T')[0]}+stars:>10&sort=stars&order=desc&per_page=6`, token);
+    const trending = await fetchTrending(token);
 
     return { events: allEvents, repos: allRepos, trending, user };
   } catch (err) {
@@ -259,10 +358,7 @@ ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivi
     }
 
     const totalCommits = Object.values(activityByDate).reduce((a, b) => a + b, 0);
-    const trending = await fetchGitHub(
-      `/search/repositories?q=created:>${new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]}+stars:>10&sort=stars&order=desc&per_page=6`,
-      token
-    );
+    const trending = await fetchTrending(token);
 
     return {
       activity: activityByDate,
