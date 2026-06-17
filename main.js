@@ -1,9 +1,16 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain } = require('electron');
 const path = require('path');
+const os = require('os');
 const https = require('https');
 
 let win, tray;
 let isQuitting = false;
+
+// ponytail: Chromium's default cache migration fails on this machine (0x5 access denied on disk_cache move).
+// Pin the cache to a known path and skip the GPU shader disk cache that the move breaks.
+// Add when: cache dir access becomes reliable, or a clean first-run is no longer a problem.
+app.setPath('cache', path.join(os.tmpdir(), 'github-widget-cache'));
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 
 function fetchGitHub(reqPath, token) {
   return new Promise((resolve, reject) => {
