@@ -229,7 +229,7 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
 ipcMain.on('minimize-window', () => { if (win) win.hide(); });
-ipcMain.on('close-window', () => { if (win) win.hide(); });
+ipcMain.on('close-window', () => { isQuitting = true; app.quit(); });
 
 // Standard fetch — used for live updates (delta)
 ipcMain.handle('github-fetch-data', async (event, { username, token }) => {

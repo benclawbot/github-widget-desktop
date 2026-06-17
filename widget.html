@@ -209,6 +209,27 @@
       {name: 'github-widget-desktop', desc: 'GitHub dashboard widget', lang: 'JavaScript', stars: 0, issues: 0, pushed: '2026-06-16T12:00:00Z', url: 'https://github.com/benclawbot/github-widget-desktop', private: false},
     ];
     const staticAllRepos = [{name: 'github-widget-desktop', stars: 0, issues: 0}];
+
+    // Persisted state — renders immediately on startup, before any network call.
+    // ponytail: single localStorage blob instead of 4 keys. Swap for a JSON file in app.getPath('userData') if quota becomes a problem.
+    function loadState() {
+      try { return JSON.parse(localStorage.getItem('gh-state') || 'null'); } catch { return null; }
+    }
+    function saveState(s) { try { localStorage.setItem('gh-state', JSON.stringify(s)); } catch {} }
+    function renderState(s) {
+      if (!s) return false;
+      if (s.activity) buildActivityMap(s.activity);
+      if (s.activeRepos) buildActiveRepos(s.activeRepos);
+      if (s.stats) buildStats(s.stats.repoCount, s.stats.totalStars, s.stats.totalIssues);
+      if (s.trending) buildTrending(s.trending);
+      if (s.commitCount != null) document.getElementById('commit-count').textContent = s.commitCount.toLocaleString();
+      if (s.lastSync) {
+        const d = new Date(s.lastSync);
+        const el = document.getElementById('sync-last');
+        if (el) el.textContent = `Last full sync: ${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+      }
+      return true;
+    }
     const staticTrending = [
       {name: 'DeusData/codebase-memory-mcp', full_name: 'DeusData/codebase-memory-mcp', html_url: 'https://github.com/DeusData/codebase-memory-mcp', owner: {login: 'DeusData'}, description: 'High-performance code intelligence MCP server. Indexes codebases into a persistent knowledge graph — average repo in milliseconds. 158 languages, sub-ms queries, 99% fewer tokens. Single static binary, zero dependencies.', language: 'C', stargazers_count: 4374, stars_today: 367},
       {name: 'n0-computer/iroh', full_name: 'n0-computer/iroh', html_url: 'https://github.com/n0-computer/iroh', owner: {login: 'n0-computer'}, description: 'IP addresses break, dial keys instead. Modular networking stack in Rust.', language: 'Rust', stargazers_count: 9499, stars_today: 422},
@@ -477,21 +498,27 @@
         localStorage.setItem('gh-activity', JSON.stringify(mergedActivity));
         localStorage.setItem('gh-last-sync', new Date().toISOString());
 
-        buildActivityMap(mergedActivity);
-        buildActiveRepos(activeRepos);
-        buildStats(allRepos.length, totalStars, totalIssues);
-        buildTrending(data.trending?.items || []);
+        const state = {
+          activity: mergedActivity,
+          activeRepos,
+          stats: { repoCount: allRepos.length, totalStars, totalIssues },
+          trending: data.trending?.items || [],
+          commitCount: totalCommits,
+          lastSync: new Date().toISOString()
+        };
+        saveState(state);
+        renderState(state);
 
         document.getElementById('commit-count').textContent = totalCommits.toLocaleString();
       } catch (err) {
         console.error('Failed to load GitHub data:', err);
-        const cachedActivityStr = localStorage.getItem('gh-activity');
-        let cachedActivity = {};
-        try { cachedActivity = JSON.parse(cachedActivityStr) || {}; } catch {}
-        buildActivityMap(Object.keys(cachedActivity).length ? cachedActivity : staticActivity);
-        buildActiveRepos(staticRepos);
-        buildStats(staticAllRepos.length, staticAllRepos.reduce((s,r) => s+r.stars, 0), staticAllRepos.reduce((s,r) => s+r.issues, 0));
-        buildTrending(staticTrending);
+        // Use last-known-good cached state, fall back to demo data only if nothing cached.
+        if (!renderState(loadState())) {
+          buildActivityMap(staticActivity);
+          buildActiveRepos(staticRepos);
+          buildStats(staticAllRepos.length, staticAllRepos.reduce((s,r) => s+r.stars, 0), staticAllRepos.reduce((s,r) => s+r.issues, 0));
+          buildTrending(staticTrending);
+        }
         document.getElementById('commit-count').textContent = '?';
       }
 
@@ -555,10 +582,18 @@
           }));
 
         const allRepos = result.repos || [];
-        buildActivityMap(result.activity);
-        buildActiveRepos(activeRepos);
-        buildStats(allRepos.length, allRepos.reduce((s,r) => s+(r.stargazers_count||0), 0), allRepos.reduce((s,r) => s+(r.open_issues_count||0), 0));
-        buildTrending(result.trending?.items || []);
+        const totalStars = allRepos.reduce((s,r) => s+(r.stargazers_count||0), 0);
+        const totalIssues = allRepos.reduce((s,r) => s+(r.open_issues_count||0), 0);
+        const state = {
+          activity: result.activity,
+          activeRepos,
+          stats: { repoCount: allRepos.length, totalStars, totalIssues },
+          trending: result.trending?.items || [],
+          commitCount: result.totalCommits || 0,
+          lastSync: result.lastSync
+        };
+        saveState(state);
+        renderState(state);
         document.getElementById('commit-count').textContent = (result.totalCommits || 0).toLocaleString();
 
         const lastSync = localStorage.getItem('gh-last-sync');
@@ -612,6 +647,10 @@
     if (saved) {
       try { config = JSON.parse(saved); } catch {}
     }
+
+    // Render last-known-good state immediately, before any network call.
+    // smartSync() will replace it once the API responds.
+    renderState(loadState());
 
     // Auto-prompt full sync on first launch (no cached activity)
     const hasCachedActivity = !!localStorage.getItem('gh-activity');
