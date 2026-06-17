@@ -54,7 +54,23 @@ npm run build   # build .exe installer
 - The full sync may take a few minutes the first time (it iterates all your repos and pulls commit history). Subsequent quick refreshes only fetch the delta.
 - Activity data is cached in `localStorage` so it persists between launches.
 
+## Testing
+
+```bash
+npm test               # contract tests (no network, runs on every commit)
+npm run test:integration  # live tests against GitHub API (28 tests)
+npm run test:all       # both
+```
+
+A pre-commit hook runs the contract tests on every commit. If a regression is detected, the commit is blocked. Bypass with `git commit --no-verify` only if absolutely necessary.
+
+The contract tests are the regression guards for bugs that shipped in earlier versions:
+- Wrong API path (`/repos/` prefix required)
+- Listener leak in preload (singleton pattern required)
+- Missing HTTP status code check (4xx errors must reject, not resolve)
+
 ## Recent Changes
 
+- [1.0.2] Add contract + integration tests, pre-commit hook guards regressions (2026-06-17)
 - [1.0.1] Fix full sync API path (`/users/{u}/repos/{r}/commits` → `/repos/{u}/{r}/commits`) and fix listener leak in preload (2026-06-17)
 - [1.0.0] Initial release — Electron desktop widget with activity map, active repos, quick stats, trending repos, and system tray integration (2026-06-16)
