@@ -71,6 +71,7 @@ The contract tests are the regression guards for bugs that shipped in earlier ve
 
 ## Recent Changes
 
+- [1.0.3] Fix activity map month labels (CSS Grid so labels line up with their week column) and trending repos (now scrapes github.com/trending daily feed with search-API fallback) (2026-06-17)
 - [1.0.2] Add contract + integration tests, pre-commit hook guards regressions (2026-06-17)
 - [1.0.1] Fix full sync API path (`/users/{u}/repos/{r}/commits` → `/repos/{u}/{r}/commits`) and fix listener leak in preload (2026-06-17)
 - [1.0.0] Initial release — Electron desktop widget with activity map, active repos, quick stats, trending repos, and system tray integration (2026-06-16)
