@@ -145,10 +145,11 @@ ipcMain.handle('github-fetch-data', async (event, { username, token }) => {
       else break;
     }
 
-    // Recent repos
+    // Recent repos — /user/repos (with token) returns ALL repos incl. private;
+    // /users/{user}/repos only returns public. 57 vs 44.
     let allRepos = [];
     for (let page = 1; page <= 5; page++) {
-      const r = await fetchGitHub(`/users/${username}/repos?sort=pushed&per_page=100&page=${page}&type=all`, token);
+      const r = await fetchGitHub(`/user/repos?sort=pushed&per_page=100&page=${page}&type=all`, token);
       if (Array.isArray(r) && r.length > 0) allRepos = allRepos.concat(r);
       else break;
     }
@@ -172,10 +173,11 @@ ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivi
   const progressCallback = event.sender;
 
   try {
-    // Fetch all repos first
+    // Fetch all repos first — /user/repos (with token) returns all incl. private;
+    // /users/{user}/repos only returns public.
     let allRepos = [];
     for (let page = 1; page <= 10; page++) {
-      const r = await fetchGitHub(`/users/${username}/repos?sort=pushed&per_page=100&page=${page}&type=all`, token);
+      const r = await fetchGitHub(`/user/repos?sort=pushed&per_page=100&page=${page}&type=all`, token);
       if (Array.isArray(r) && r.length > 0) allRepos = allRepos.concat(r);
       else break;
     }
@@ -193,19 +195,27 @@ ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivi
       reposProcessed++;
       progressCallback.send('sync-progress', { current: reposProcessed, total: totalRepos, repo: repo.name });
 
+      // Use repo.owner.login (not username) so repos owned by other orgs work.
+      // Example: benclawbot has a fork of DgenKing/trendboss — /repos/benclawbot/trendboss/commits 404s.
+      const owner = repo.owner?.login || username;
+      const fullName = `${owner}/${repo.name}`;
+
       // Fetch commits for this repo (last 90 days, paginated)
       let page = 1;
       let hasMore = true;
       let repoPageCount = 0;
+      let skipRepo = false;
 
       while (hasMore) {
         try {
           const commits = await fetchGitHub(
-            `/repos/${username}/${repo.name}/commits?since=${ninetyDaysStr}&per_page=100&page=${page}`,
+            `/repos/${fullName}/commits?since=${ninetyDaysStr}&per_page=100&page=${page}`,
             token
           );
 
           if (!Array.isArray(commits)) {
+            // Non-array response (404, 401, 403) — skip this repo, continue loop
+            skipRepo = true;
             hasMore = false;
             break;
           }
@@ -230,10 +240,18 @@ ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivi
           if (err.rateLimited) {
             // Wait and retry
             await sleep(err.waitSec * 1000);
+          } else if (err.httpError && (err.status === 404 || err.status === 401 || err.status === 403)) {
+            // Repo inaccessible (private without access, deleted, forbidden) — skip it
+            skipRepo = true;
+            hasMore = false;
           } else {
             hasMore = false;
           }
         }
+      }
+
+      if (skipRepo) {
+        console.log(`[sync] skipping ${fullName} (inaccessible)`);
       }
 
       // Small inter-repo delay

@@ -153,14 +153,65 @@ async function main() {
   // ---------- Defense: fullSync commits path uses /repos/ prefix ----------
   section('main.js: fullSync uses correct commits API path');
 
-  await it('github-full-sync uses /repos/{user}/{repo}/commits (not /{user}/{repo}/commits)', () => {
-    // Extract the commits fetch line from main.js
-    const matches = testCode.match(/\/[^"`]*\$\{username\}\/\$\{repo\.name\}\/commits[^"`]*/g) || [];
-    assert.ok(matches.length > 0, 'no commits API call found in main.js');
-    const allUseReposPrefix = matches.every(m => m.startsWith('/repos/'));
+  await it('github-full-sync uses /repos/.../commits (not /.../commits without repos prefix)', () => {
+    // Extract any URL ending in /commits — only match fetchGitHub calls
+    // (which appear inside backticks or quotes), not comments.
+    const calls = testCode.match(/fetchGitHub\(\s*[`'"][^`'"]*\/commits[^`'"]*[`'"]/g) || [];
+    assert.ok(calls.length > 0, 'no fetchGitHub commits call found in main.js');
+    const allUseReposPrefix = calls.every(c => c.includes('/repos/'));
     assert.ok(
       allUseReposPrefix,
-      `found commits API call without /repos/ prefix: ${matches.find(m => !m.startsWith('/repos/'))}`
+      `found fetchGitHub commits call without /repos/ prefix: ${calls.find(c => !c.includes('/repos/'))}`
+    );
+  });
+
+  // ---------- Defense: fullSync uses repo.owner.login, not just username ----------
+  section('main.js: fullSync uses repo.owner.login for commits URL');
+
+  await it('github-full-sync builds commits URL from repo.owner.login, not just username', () => {
+    // Regression: benclawbot has a fork of DgenKing/trendboss. Using
+    // `${username}/${repo.name}` builds /repos/benclawbot/trendboss/commits
+    // which 404s. The correct URL needs repo.owner.login.
+    assert.ok(
+      /repo\.owner\?\.login/.test(testCode),
+      'main.js does not use repo.owner.login when building commits URL; forks of other orgs will 404'
+    );
+    assert.ok(
+      /fullName\s*=\s*`\$\{owner\}\/\$\{repo\.name\}`/.test(testCode) ||
+      /\$\{owner\}\/\$\{repo\.name\}/.test(testCode),
+      'main.js should build fullName from owner + repo.name, not from username'
+    );
+  });
+
+  // ---------- Defense: 404 on a single repo should not abort the whole sync ----------
+  section('main.js: per-repo failures do not abort the loop');
+
+  await it('github-full-sync handles 404/401/403 on a single repo without throwing', () => {
+    // Regression: a 404 on one repo (e.g. inaccessible fork) used to throw
+    // and the whole sync returned an error to the renderer. The fix is to
+    // set skipRepo = true and continue to the next repo.
+    assert.ok(
+      /skipRepo\s*=\s*true/.test(testCode),
+      'main.js does not have skipRepo logic; a 404 on one repo will abort the whole sync'
+    );
+  });
+
+  // ---------- Defense: fetch uses /user/repos (not /users/{user}/repos) when token is set ----------
+  section('main.js: uses /user/repos to include private repos');
+
+  await it('github-fetch-data and github-full-sync use /user/repos (not /users/{user}/repos)', () => {
+    // /users/{user}/repos only returns PUBLIC repos (44 for benclawbot).
+    // /user/repos with a token returns ALL repos including private (57).
+    // Using the wrong endpoint silently misses private repos.
+    const wrongEndpoint = testCode.match(/\/users\/\$\{username\}\/repos/g) || [];
+    assert.strictEqual(
+      wrongEndpoint.length, 0,
+      `found ${wrongEndpoint.length} uses of /users/${'$'}{username}/repos; should be /user/repos to include private repos. Occurrences: ${wrongEndpoint.join(', ')}`
+    );
+    const correctEndpoint = testCode.match(/\/user\/repos/g) || [];
+    assert.ok(
+      correctEndpoint.length >= 2,
+      `expected /user/repos in both github-fetch-data and github-full-sync; found ${correctEndpoint.length} occurrences`
     );
   });
 
