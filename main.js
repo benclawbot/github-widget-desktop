@@ -76,10 +76,10 @@ function createWindow() {
     win.show();
   });
 
-  win.on('close', (e) => {
+  win.on('close', () => {
     if (!isQuitting) {
-      e.preventDefault();
-      win.hide();
+      isQuitting = true;
+      if (tray) tray.destroy();
     }
   });
 
