@@ -7,7 +7,13 @@
     "start": "electron .",
     "dev": "electron .",
     "build": "electron-builder --win",
-    "pack": "electron-builder --dir"
+    "pack": "electron-builder --dir",
+    "test": "node tests/contract.test.js",
+    "test:integration": "node tests/integration.test.js",
+    "test:all": "node tests/contract.test.js && node tests/integration.test.js",
+    "test:precommit": "node tests/precommit.js",
+    "setup-hooks": "node tests/setup-hooks.js",
+    "postinstall": "node tests/setup-hooks.js"
   },
   "keywords": ["github", "widget", "electron", "desktop"],
   "author": "benclawbot",

@@ -1,0 +1,28 @@
+#!/bin/sh
+# Pre-commit hook: runs contract tests before allowing the commit.
+# This file lives in tests/hooks/ and is installed into .git/hooks/
+# by `npm install` (postinstall) or by running `npm run setup-hooks`.
+#
+# To bypass: git commit --no-verify
+
+echo "Running pre-commit contract tests..."
+
+cd "$(git rev-parse --show-toplevel)"
+
+if ! node tests/contract.test.js > /tmp/contract-test.log 2>&1; then
+  echo ""
+  echo "=========================================="
+  echo "PRE-COMMIT CHECK FAILED"
+  echo "=========================================="
+  cat /tmp/contract-test.log
+  echo "=========================================="
+  echo ""
+  echo "These tests protect against regressions of bugs that"
+  echo "shipped in earlier sessions. Fix them before committing."
+  echo ""
+  echo "To bypass (NOT RECOMMENDED): git commit --no-verify"
+  exit 1
+fi
+
+echo "Pre-commit checks passed."
+exit 0
