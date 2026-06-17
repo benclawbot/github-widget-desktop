@@ -1,6 +1,6 @@
 {
   "name": "github-widget-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GitHub Dashboard Widget - Desktop app with system tray",
   "main": "main.js",
   "scripts": {
