@@ -56,7 +56,7 @@
       <span class="text-sm font-medium text-gray-300">GitHub Widget</span>
     </div>
     <div class="flex items-center gap-1">
-      <button id="btn-sync" class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors" title="Full Sync (rebuild activity map)">
+      <button id="btn-sync" class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors" title="Sync">
         <svg id="sync-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
         </svg>
@@ -65,11 +65,6 @@
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-        </svg>
-      </button>
-      <button id="btn-refresh" class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors" title="Refresh">
-        <svg id="refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
         </svg>
       </button>
       <button id="btn-minimize" class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
@@ -107,6 +102,7 @@
         </div>
         <p class="text-xs text-gray-500">Token needs <b>repo</b> scope for private repos. Get one at GitHub → Settings → Developer Settings → Personal Access Tokens → Generate new token → Select "repo" scope.</p>
         <button id="btn-save-config" class="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-medium text-white transition-colors">Save & Refresh</button>
+        <button id="btn-reset-cache" class="w-full py-2 mt-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm font-medium text-gray-200 transition-colors" title="Clear cached activity map and rebuild from scratch">Reset cache & rebuild</button>
       </div>
     </div>
   </div>
@@ -375,8 +371,22 @@
       });
     }
 
-    async function loadData() {
-      const icon = document.getElementById('refresh-icon');
+    async function smartSync() {
+      // Token gate — if missing, open config; save handler will re-invoke smartSync.
+      if (!config.username || !config.token) {
+        document.getElementById('config-panel').classList.add('open');
+        return;
+      }
+      const lastSync = localStorage.getItem('gh-last-sync');
+      if (!lastSync) {
+        await fullSync();
+      } else {
+        await deltaSync();
+      }
+    }
+
+    async function deltaSync() {
+      const icon = document.getElementById('sync-icon');
       icon.classList.add('spin');
 
       try {
@@ -429,6 +439,10 @@
         Object.entries(eventsByDate).forEach(([date, count]) => {
           mergedActivity[date] = (mergedActivity[date] || 0) + count;
         });
+
+        // Persist so the next delta accumulates instead of starting from stale cache
+        localStorage.setItem('gh-activity', JSON.stringify(mergedActivity));
+        localStorage.setItem('gh-last-sync', new Date().toISOString());
 
         buildActivityMap(mergedActivity);
         buildActiveRepos(activeRepos);
@@ -544,12 +558,19 @@
       config.token = document.getElementById('input-token').value.trim();
       localStorage.setItem('gh-widget-config', JSON.stringify(config));
       document.getElementById('config-panel').classList.remove('open');
-      loadData();
+      smartSync();
+    });
+
+    document.getElementById('btn-reset-cache').addEventListener('click', () => {
+      if (!confirm('Clear cached activity map and rebuild from scratch?')) return;
+      localStorage.removeItem('gh-activity');
+      localStorage.removeItem('gh-last-sync');
+      document.getElementById('config-panel').classList.remove('open');
+      smartSync();
     });
 
     // Title bar buttons
-    document.getElementById('btn-sync').addEventListener('click', fullSync);
-    document.getElementById('btn-refresh').addEventListener('click', loadData);
+    document.getElementById('btn-sync').addEventListener('click', smartSync);
     document.getElementById('btn-minimize').addEventListener('click', () => window.electronAPI.minimize());
     document.getElementById('btn-close').addEventListener('click', () => window.electronAPI.close());
 
@@ -574,8 +595,8 @@
       try { config = JSON.parse(saved); } catch {}
     }
 
-    // Initial load
-    loadData();
+    // Initial load — sync if we have a prior last-sync, otherwise wait for user click
+    if (localStorage.getItem('gh-last-sync')) smartSync();
   </script>
 </body>
 </html>
