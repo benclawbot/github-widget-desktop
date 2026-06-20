@@ -25,8 +25,16 @@
     .title-bar button, .title-bar a { -webkit-app-region: no-drag; }
     .scroll-content { position: fixed; top: 41px; left: 0; right: 0; bottom: 0; overflow-y: auto; }
     .glass { background: rgba(22, 27, 34, 0.95); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.08); }
-    .activity-cell { transition: all 0.15s ease; cursor: pointer; }
-    .activity-cell:hover { transform: scale(1.5); box-shadow: 0 0 12px rgba(88, 166, 255, 0.7); z-index: 10; position: relative; }
+    .activity-chart { position: relative; width: 100%; height: 132px; border-radius: 8px; outline: none; overflow: hidden; }
+    .activity-chart:focus-visible { box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.75), 0 0 18px rgba(16, 185, 129, 0.12); }
+    .activity-chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+    .activity-guide { stroke: rgba(148, 163, 184, 0.12); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .activity-area { fill: url(#activity-area-gradient); }
+    .activity-line { fill: none; stroke: #34d399; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 5px rgba(52, 211, 153, 0.34)); }
+    .activity-point { fill: rgba(52, 211, 153, 0.34); stroke: rgba(13, 17, 23, 0.7); stroke-width: 0.75; vector-effect: non-scaling-stroke; }
+    .activity-active-guide { stroke: rgba(110, 231, 183, 0.38); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+    .activity-active-point { fill: #6ee7b7; stroke: #0d1117; stroke-width: 2; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.85)); pointer-events: none; }
+    .activity-empty { height: 132px; display: flex; align-items: center; justify-content: center; color: #6b7280; font-size: 12px; }
     .repo-card { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
     .repo-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4); border-color: rgba(88, 166, 255, 0.3); }
     .trend-card { transition: all 0.2s ease; }
@@ -41,6 +49,9 @@
     .spin { animation: spin 0.8s linear infinite; }
     .config-panel { display: none; }
     .config-panel.open { display: flex; }
+    @media (prefers-reduced-motion: reduce) {
+      .tooltip { transition: none; }
+    }
   </style>
 </head>
 <body class="text-white">
@@ -130,28 +141,19 @@
     <!-- Main Grid -->
     <div class="flex flex-col gap-3">
 
-      <!-- Activity Map -->
+      <!-- Cumulative Activity Chart -->
       <div class="glass rounded-xl p-3 flex-shrink-0">
-        <div class="flex items-center justify-between mb-2">
-          <h2 class="text-xs font-medium text-gray-300">Activity Overview</h2>
-          <span id="activity-dates" class="text-xs text-gray-500">--</span>
-        </div>
-        <div id="activity-container">
-          <div id="month-labels" class="flex h-4 mb-1"></div>
-          <div id="activity-map" class="flex flex-wrap gap-1"></div>
-        </div>
-        <div id="tooltip" class="tooltip fixed px-2 py-1 rounded bg-[#1c2128] text-xs text-white border border-white/10"></div>
-        <div class="flex items-center justify-end gap-1 mt-2">
-          <span class="text-xs text-gray-500">Less</span>
-          <div class="flex gap-0.5">
-            <div class="w-2.5 h-2.5 rounded-sm bg-[#161b22]"></div>
-            <div class="w-2.5 h-2.5 rounded-sm bg-emerald-900"></div>
-            <div class="w-2.5 h-2.5 rounded-sm bg-emerald-700"></div>
-            <div class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></div>
-            <div class="w-2.5 h-2.5 rounded-sm bg-emerald-400"></div>
+        <div class="mb-2">
+          <h2 class="text-xs font-medium text-gray-300 mb-1.5">Activity Overview</h2>
+          <div class="flex items-center justify-between">
+            <span id="activity-start-date" class="text-[11px] text-gray-500">--</span>
+            <span id="activity-end-date" class="text-[11px] text-gray-500">--</span>
           </div>
-          <span class="text-xs text-gray-500">More</span>
         </div>
+        <div id="activity-chart" class="activity-chart" tabindex="0" role="img" aria-label="Cumulative commit activity chart">
+          <div class="activity-empty">No commit activity retrieved</div>
+        </div>
+        <div id="tooltip" class="tooltip fixed px-2.5 py-2 rounded-lg bg-[#1c2128] text-xs text-white border border-white/10 shadow-xl" aria-live="polite"></div>
       </div>
 
       <!-- Active Repos -->
@@ -199,6 +201,7 @@
 
   </div>
 
+  <script src="activity-chart.js"></script>
   <script>
     // Fallback static data for demo
     const staticActivity = {
@@ -264,101 +267,206 @@
       return div.innerHTML;
     }
 
-    function getActivityColor(count) {
-      if (count === 0) return 'bg-[#161b22]';
-      if (count <= 3) return 'bg-emerald-900';
-      if (count <= 6) return 'bg-emerald-700';
-      if (count <= 10) return 'bg-emerald-500';
-      return 'bg-emerald-400';
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    let activityResizeObserver = null;
+    let latestActivityData = {};
+    let activityRenderFrame = null;
+
+    function createSvgElement(name, attributes = {}) {
+      const element = document.createElementNS(SVG_NS, name);
+      Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value)));
+      return element;
+    }
+
+    function formatTooltipDate(dateString) {
+      return new Intl.DateTimeFormat('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        timeZone: 'UTC'
+      }).format(new Date(`${dateString}T00:00:00.000Z`));
+    }
+
+    function positionActivityTooltip(tooltip, svg, point, width, height) {
+      const rect = svg.getBoundingClientRect();
+      const anchorX = rect.left + (point.x / width) * rect.width;
+      const anchorY = rect.top + (point.y / height) * rect.height;
+      const margin = 8;
+      let left = anchorX - tooltip.offsetWidth / 2;
+      let top = anchorY - tooltip.offsetHeight - 10;
+      left = Math.max(margin, Math.min(window.innerWidth - tooltip.offsetWidth - margin, left));
+      if (top < margin) top = Math.min(window.innerHeight - tooltip.offsetHeight - margin, anchorY + 10);
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    }
+
+    function renderActivityChart(eventsByDate) {
+      const chart = document.getElementById('activity-chart');
+      const tooltip = document.getElementById('tooltip');
+      const startLabel = document.getElementById('activity-start-date');
+      const endLabel = document.getElementById('activity-end-date');
+      const series = ActivityChart.buildCumulativeSeries(eventsByDate);
+
+      chart.replaceChildren();
+      tooltip.classList.remove('visible');
+      if (series.length === 0) {
+        startLabel.textContent = '--';
+        endLabel.textContent = '--';
+        chart.setAttribute('aria-label', 'Cumulative commit activity chart. No activity retrieved.');
+        const empty = document.createElement('div');
+        empty.className = 'activity-empty';
+        empty.textContent = 'No commit activity retrieved';
+        chart.appendChild(empty);
+        return;
+      }
+
+      startLabel.textContent = ActivityChart.formatChartDate(series[0].date);
+      endLabel.textContent = ActivityChart.formatChartDate(series.at(-1).date);
+      chart.setAttribute('aria-label', `Cumulative commit activity from ${startLabel.textContent} to ${endLabel.textContent}, ${series.at(-1).cumulative.toLocaleString()} commits`);
+
+      const width = Math.max(280, Math.round(chart.clientWidth || 320));
+      const height = 132;
+      const padding = { top: 10, right: 7, bottom: 9, left: 7 };
+      const plotWidth = width - padding.left - padding.right;
+      const plotHeight = height - padding.top - padding.bottom;
+      const maxCumulative = Math.max(1, series.at(-1).cumulative);
+      const points = series.map((day, index) => ({
+        x: series.length === 1 ? width / 2 : padding.left + (index / (series.length - 1)) * plotWidth,
+        y: padding.top + plotHeight - (day.cumulative / maxCumulative) * plotHeight
+      }));
+
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.setAttribute('aria-hidden', 'true');
+
+      const defs = createSvgElement('defs');
+      const gradient = createSvgElement('linearGradient', { id: 'activity-area-gradient', x1: 0, y1: 0, x2: 0, y2: 1 });
+      gradient.append(
+        createSvgElement('stop', { offset: '0%', 'stop-color': '#34d399', 'stop-opacity': 0.26 }),
+        createSvgElement('stop', { offset: '100%', 'stop-color': '#34d399', 'stop-opacity': 0.015 })
+      );
+      defs.appendChild(gradient);
+      svg.appendChild(defs);
+
+      [0.25, 0.5, 0.75].forEach(fraction => {
+        const guide = createSvgElement('line', {
+          x1: padding.left,
+          y1: padding.top + plotHeight * fraction,
+          x2: width - padding.right,
+          y2: padding.top + plotHeight * fraction
+        });
+        guide.classList.add('activity-guide');
+        svg.appendChild(guide);
+      });
+
+      const area = createSvgElement('path', {
+        d: ActivityChart.buildAreaPath(points, height - padding.bottom)
+      });
+      area.classList.add('activity-area');
+      svg.appendChild(area);
+
+      const line = createSvgElement('path', {
+        d: ActivityChart.buildMonotonePath(points)
+      });
+      line.classList.add('activity-line');
+      svg.appendChild(line);
+
+      points.forEach((point, index) => {
+        const marker = createSvgElement('circle', {
+          cx: point.x,
+          cy: point.y,
+          r: series.length > 60 ? 1.15 : 1.5,
+          'data-chart-index': index
+        });
+        marker.classList.add('activity-point');
+        svg.appendChild(marker);
+      });
+
+      const activeGuide = createSvgElement('line', {
+        x1: points.at(-1).x,
+        y1: padding.top,
+        x2: points.at(-1).x,
+        y2: height - padding.bottom,
+        opacity: 0
+      });
+      activeGuide.classList.add('activity-active-guide');
+      svg.appendChild(activeGuide);
+
+      const activePoint = createSvgElement('circle', {
+        cx: points.at(-1).x,
+        cy: points.at(-1).y,
+        r: 4,
+        opacity: 0
+      });
+      activePoint.classList.add('activity-active-point');
+      svg.appendChild(activePoint);
+
+      let selectedIndex = series.length - 1;
+      function selectDay(index, announce = true) {
+        selectedIndex = Math.max(0, Math.min(series.length - 1, index));
+        const day = series[selectedIndex];
+        const point = points[selectedIndex];
+        activeGuide.setAttribute('x1', point.x);
+        activeGuide.setAttribute('x2', point.x);
+        activeGuide.setAttribute('opacity', 1);
+        activePoint.setAttribute('cx', point.x);
+        activePoint.setAttribute('cy', point.y);
+        activePoint.setAttribute('opacity', 1);
+
+        tooltip.replaceChildren();
+        const dateLine = document.createElement('div');
+        dateLine.className = 'text-gray-400 mb-0.5';
+        dateLine.textContent = formatTooltipDate(day.date);
+        const dailyLine = document.createElement('div');
+        dailyLine.className = 'font-medium text-emerald-300';
+        const dailyLabel = day.daily === 1 ? 'commit today' : 'commits today';
+        dailyLine.textContent = `${day.daily.toLocaleString()} ${dailyLabel}`;
+        const cumulativeLine = document.createElement('div');
+        cumulativeLine.className = 'text-gray-400';
+        cumulativeLine.textContent = `${day.cumulative.toLocaleString()} cumulative`;
+        tooltip.append(dateLine, dailyLine, cumulativeLine);
+        tooltip.classList.add('visible');
+        positionActivityTooltip(tooltip, svg, point, width, height);
+        if (announce) chart.setAttribute('aria-label', `${dateLine.textContent}: ${dailyLine.textContent}, ${cumulativeLine.textContent}`);
+      }
+
+      chart.addEventListener('pointermove', event => {
+        const rect = chart.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+        const index = Math.round(ratio * (series.length - 1));
+        selectDay(index, false);
+      });
+      chart.addEventListener('pointerleave', () => {
+        if (document.activeElement !== chart) {
+          activeGuide.setAttribute('opacity', 0);
+          activePoint.setAttribute('opacity', 0);
+          tooltip.classList.remove('visible');
+        }
+      });
+      chart.addEventListener('focus', () => selectDay(selectedIndex));
+      chart.addEventListener('blur', () => {
+        activeGuide.setAttribute('opacity', 0);
+        activePoint.setAttribute('opacity', 0);
+        tooltip.classList.remove('visible');
+      });
+      chart.addEventListener('keydown', event => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        selectDay(selectedIndex + (event.key === 'ArrowLeft' ? -1 : 1));
+      });
+
+      chart.appendChild(svg);
     }
 
     function buildActivityMap(eventsByDate) {
-      const container = document.getElementById('activity-map');
-      const monthLabels = document.getElementById('month-labels');
-      const tooltip = document.getElementById('tooltip');
-      const endDate = new Date();
-      endDate.setHours(0, 0, 0, 0);
-
-      // Cell sizing must match .w-2.5 (10px) and gap-1 (4px) on .activity-map.
-      const cellSize = 10;
-      const gap = 4;
-      const colWidth = cellSize + gap;
-
-      // Fit as many weeks as the container can hold, capped so we don't overflow.
-      const containerWidth = (container.parentElement && container.parentElement.clientWidth) || 256;
-      const numWeeks = Math.max(13, Math.floor((containerWidth + gap) / colWidth));
-
-      // Align start date to a Sunday so each grid column is one calendar week.
-      const startDate = new Date(endDate);
-      startDate.setDate(endDate.getDate() - numWeeks * 7 + 1);
-      startDate.setDate(startDate.getDate() - startDate.getDay());
-
-      const allDays = [];
-      const current = new Date(startDate);
-      while (current <= endDate) {
-        const dateStr = current.toISOString().split('T')[0];
-        const daysSinceStart = Math.round((current - startDate) / 86400000);
-        allDays.push({
-          date: dateStr,
-          count: eventsByDate[dateStr] || 0,
-          month: current.getMonth(),
-          dayOfWeek: current.getDay(),
-          weekIndex: Math.floor(daysSinceStart / 7),
-        });
-        current.setDate(current.getDate() + 1);
-      }
-
-      const today = new Date().toISOString().split('T')[0];
-      const lastSync = localStorage.getItem('gh-last-sync');
-      const syncStr = lastSync ? ` (synced ${new Date(lastSync).toLocaleDateString()})` : '';
-      document.getElementById('activity-dates').textContent = `${allDays[0].date} — ${today}${syncStr}`;
-
-      // Use CSS Grid so month-label columns line up exactly with activity-cell columns.
-      container.style.display = 'grid';
-      container.style.gridTemplateColumns = `repeat(${numWeeks}, ${cellSize}px)`;
-      container.style.gridTemplateRows = `repeat(7, ${cellSize}px)`;
-      container.style.columnGap = `${gap}px`;
-      container.style.rowGap = `${gap}px`;
-      while (container.firstChild) container.removeChild(container.firstChild);
-
-      monthLabels.style.display = 'grid';
-      monthLabels.style.gridTemplateColumns = `repeat(${numWeeks}, ${cellSize}px)`;
-      monthLabels.style.columnGap = `${gap}px`;
-      monthLabels.style.alignItems = 'end';
-      monthLabels.style.height = '16px';
-      while (monthLabels.firstChild) monthLabels.removeChild(monthLabels.firstChild);
-
-      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const seenMonths = new Set();
-      allDays.forEach(day => {
-        const div = document.createElement('div');
-        div.className = 'w-2.5 h-2.5 rounded-sm activity-cell ' + getActivityColor(day.count);
-        div.style.gridColumn = day.weekIndex + 1;
-        div.style.gridRow = day.dayOfWeek + 1;
-        div.addEventListener('mouseenter', () => {
-          const date = new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-          const commits = day.count === 1 ? '1 commit' : day.count + ' commits';
-          tooltip.textContent = date + ' — ' + commits;
-          tooltip.classList.add('visible');
-          const rect = div.getBoundingClientRect();
-          tooltip.style.left = (rect.left + rect.width / 2 - tooltip.offsetWidth / 2) + 'px';
-          tooltip.style.top = (rect.top - tooltip.offsetHeight - 5) + 'px';
-        });
-        div.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
-        container.appendChild(div);
-
-        // Place a month label only at the first week that contains that month.
-        if (!seenMonths.has(day.month)) {
-          seenMonths.add(day.month);
-          const span = document.createElement('span');
-          span.textContent = monthNames[day.month];
-          span.style.gridColumn = day.weekIndex + 1;
-          span.style.gridRow = '1';
-          span.style.justifySelf = 'start';
-          span.className = 'text-xs text-gray-500';
-          monthLabels.appendChild(span);
-        }
+      latestActivityData = eventsByDate && typeof eventsByDate === 'object' ? { ...eventsByDate } : {};
+      renderActivityChart(latestActivityData);
+      if (activityResizeObserver) activityResizeObserver.disconnect();
+      activityResizeObserver = new ResizeObserver(() => {
+        if (activityRenderFrame) cancelAnimationFrame(activityRenderFrame);
+        activityRenderFrame = requestAnimationFrame(() => renderActivityChart(latestActivityData));
       });
+      activityResizeObserver.observe(document.getElementById('activity-chart'));
     }
 
     function buildActiveRepos(repos) {

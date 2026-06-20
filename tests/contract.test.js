@@ -400,6 +400,55 @@ async function main() {
     assert.ok(area.endsWith('L 40 64 L 4 64 Z'), area);
   });
 
+  // ---------- Cumulative activity chart renderer ----------
+  section('widget: cumulative SVG activity chart');
+
+  await it('loads the chart helper before the inline renderer script', () => {
+    const helperIndex = widgetCode.indexOf('<script src="activity-chart.js"></script>');
+    const rendererIndex = widgetCode.indexOf('<script>', helperIndex + 1);
+    assert.ok(helperIndex >= 0, 'widget does not load activity-chart.js');
+    assert.ok(rendererIndex > helperIndex, 'activity-chart.js must load before the renderer');
+  });
+
+  await it('uses oldest and latest retrieved dates around an SVG chart host', () => {
+    assert.ok(/id="activity-start-date"/.test(widgetCode), 'oldest date label is missing');
+    assert.ok(/id="activity-end-date"/.test(widgetCode), 'latest date label is missing');
+    assert.ok(/id="activity-chart"/.test(widgetCode), 'SVG chart host is missing');
+    assert.ok(!/id="month-labels"/.test(widgetCode), 'legacy month labels still exist');
+    assert.ok(!/getActivityColor|activity-cell/.test(widgetCode), 'legacy dot-map renderer still exists');
+  });
+
+  await it('renders cumulative line, area, guides, and daily point markers', () => {
+    assert.ok(/createElementNS\(SVG_NS,\s*'svg'\)/.test(widgetCode), 'renderer does not create an SVG');
+    assert.ok(/activity-area-gradient/.test(widgetCode), 'emerald area gradient is missing');
+    assert.ok(/classList\.add\('activity-line'\)/.test(widgetCode), 'cumulative line is missing');
+    assert.ok(/classList\.add\('activity-area'\)/.test(widgetCode), 'cumulative area is missing');
+    assert.ok(/classList\.add\('activity-guide'\)/.test(widgetCode), 'horizontal guides are missing');
+    assert.ok(/data-chart-index/.test(widgetCode), 'daily point markers are missing');
+  });
+
+  await it('supports nearest-day pointer selection and arrow-key navigation', () => {
+    assert.ok(/addEventListener\('pointermove'/.test(widgetCode), 'pointer hover selection is missing');
+    assert.ok(/Math\.round\(.+series\.length\s*-\s*1/.test(widgetCode), 'pointer does not select nearest day');
+    assert.ok(/addEventListener\('keydown'/.test(widgetCode), 'keyboard navigation is missing');
+    assert.ok(/ArrowLeft/.test(widgetCode) && /ArrowRight/.test(widgetCode), 'left/right navigation is missing');
+    assert.ok(/tabindex="0"/.test(widgetCode), 'chart host is not keyboard focusable');
+  });
+
+  await it('shows daily and cumulative values in an accessible live tooltip', () => {
+    assert.ok(/aria-live="polite"/.test(widgetCode), 'tooltip is not an aria live region');
+    assert.ok(/commits today/.test(widgetCode), 'tooltip does not show daily commits');
+    assert.ok(/cumulative/.test(widgetCode), 'tooltip does not show cumulative commits');
+    assert.ok(/setAttribute\('aria-label'/.test(widgetCode), 'chart accessible label is missing');
+  });
+
+  await it('handles empty activity and rebuilds through one ResizeObserver', () => {
+    assert.ok(/activity-empty/.test(widgetCode), 'empty chart state is missing');
+    assert.ok(/let activityResizeObserver/.test(widgetCode), 'resize observer is not stored');
+    assert.ok(/activityResizeObserver\.disconnect\(\)/.test(widgetCode), 'old resize observer is not disconnected');
+    assert.ok(/new ResizeObserver/.test(widgetCode), 'chart is not responsive to resize');
+  });
+
   // ---------- Defense: trending uses repo.language not repo.langColor ----------
   // (The widget.html rendering is checked in the live test indirectly; here we
   // check that the API field used is 'language', not a derived class name.)
