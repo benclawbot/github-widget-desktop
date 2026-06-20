@@ -269,6 +269,7 @@
 
     const SVG_NS = 'http://www.w3.org/2000/svg';
     let activityResizeObserver = null;
+    let activityInteractionController = null;
     let latestActivityData = {};
     let activityRenderFrame = null;
 
@@ -307,6 +308,8 @@
       const endLabel = document.getElementById('activity-end-date');
       const series = ActivityChart.buildCumulativeSeries(eventsByDate);
 
+      if (activityInteractionController) activityInteractionController.abort();
+      activityInteractionController = new AbortController();
       chart.replaceChildren();
       tooltip.classList.remove('visible');
       if (series.length === 0) {
@@ -435,25 +438,25 @@
         const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
         const index = Math.round(ratio * (series.length - 1));
         selectDay(index, false);
-      });
+      }, { signal: activityInteractionController.signal });
       chart.addEventListener('pointerleave', () => {
         if (document.activeElement !== chart) {
           activeGuide.setAttribute('opacity', 0);
           activePoint.setAttribute('opacity', 0);
           tooltip.classList.remove('visible');
         }
-      });
-      chart.addEventListener('focus', () => selectDay(selectedIndex));
+      }, { signal: activityInteractionController.signal });
+      chart.addEventListener('focus', () => selectDay(selectedIndex), { signal: activityInteractionController.signal });
       chart.addEventListener('blur', () => {
         activeGuide.setAttribute('opacity', 0);
         activePoint.setAttribute('opacity', 0);
         tooltip.classList.remove('visible');
-      });
+      }, { signal: activityInteractionController.signal });
       chart.addEventListener('keydown', event => {
         if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
         event.preventDefault();
         selectDay(selectedIndex + (event.key === 'ArrowLeft' ? -1 : 1));
-      });
+      }, { signal: activityInteractionController.signal });
 
       chart.appendChild(svg);
     }

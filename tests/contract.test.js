@@ -449,6 +449,12 @@ async function main() {
     assert.ok(/new ResizeObserver/.test(widgetCode), 'chart is not responsive to resize');
   });
 
+  await it('replaces chart interaction listeners instead of stacking them on resize', () => {
+    assert.ok(/let activityInteractionController/.test(widgetCode), 'interaction controller is not stored');
+    assert.ok(/activityInteractionController\.abort\(\)/.test(widgetCode), 'old chart listeners are not aborted');
+    assert.ok(/signal:\s*activityInteractionController\.signal/.test(widgetCode), 'chart listeners do not share an abort signal');
+  });
+
   // ---------- Defense: trending uses repo.language not repo.langColor ----------
   // (The widget.html rendering is checked in the live test indirectly; here we
   // check that the API field used is 'language', not a derived class name.)
