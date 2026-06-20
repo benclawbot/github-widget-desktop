@@ -9,5 +9,6 @@ dist/
 !package.json
 !app.asar
 screenshots/
+.worktrees/
 *.raw
 *.log
