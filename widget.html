@@ -31,7 +31,7 @@
     .activity-guide { stroke: rgba(148, 163, 184, 0.12); stroke-width: 1; vector-effect: non-scaling-stroke; }
     .activity-area { fill: url(#activity-area-gradient); }
     .activity-line { fill: none; stroke: #34d399; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 5px rgba(52, 211, 153, 0.34)); }
-    .activity-point { fill: rgba(52, 211, 153, 0.34); stroke: rgba(13, 17, 23, 0.7); stroke-width: 0.75; vector-effect: non-scaling-stroke; }
+    .activity-point { fill: rgba(110, 231, 183, 0.16); vector-effect: non-scaling-stroke; }
     .activity-active-guide { stroke: rgba(110, 231, 183, 0.38); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; pointer-events: none; }
     .activity-active-point { fill: #6ee7b7; stroke: #0d1117; stroke-width: 2; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.85)); pointer-events: none; }
     .activity-empty { height: 132px; display: flex; align-items: center; justify-content: center; color: #6b7280; font-size: 12px; }
@@ -378,7 +378,7 @@
         const marker = createSvgElement('circle', {
           cx: point.x,
           cy: point.y,
-          r: series.length > 60 ? 1.15 : 1.5,
+          r: series.length > 60 ? 0.75 : 1.1,
           'data-chart-index': index
         });
         marker.classList.add('activity-point');
