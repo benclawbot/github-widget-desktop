@@ -2,6 +2,7 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain } = require
 const path = require('path');
 const os = require('os');
 const https = require('https');
+const { buildSyncWindow } = require('./sync-window');
 
 let win, tray;
 let isQuitting = false;
@@ -9,6 +10,7 @@ let isQuitting = false;
 // ponytail: Chromium's default cache migration fails on this machine (0x5 access denied on disk_cache move).
 // Pin the cache to a known path and skip the GPU shader disk cache that the move breaks.
 // Add when: cache dir access becomes reliable, or a clean first-run is no longer a problem.
+app.setPath('userData', path.join(app.getPath('appData'), 'github-widget-desktop'));
 app.setPath('cache', path.join(os.tmpdir(), 'github-widget-cache'));
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 
@@ -275,10 +277,12 @@ ipcMain.handle('github-fetch-data', async (event, { username, token }) => {
 });
 
 // Full sync — fetches commit history from every repo to build complete activity map
-ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivity }) => {
+ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivity, lastSync }) => {
   const progressCallback = event.sender;
 
   try {
+    const syncWindow = buildSyncWindow(lastSync);
+
     // Fetch all repos first — /user/repos (with token) returns all incl. private;
     // /users/{user}/repos only returns public.
     let allRepos = [];
@@ -288,16 +292,22 @@ ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivi
       else break;
     }
 
-    const activityByDate = cachedActivity ? { ...cachedActivity } : {};
-    const now = new Date();
-    const ninetyDaysAgo = new Date(now);
-    ninetyDaysAgo.setDate(now.getDate() - 90);
-    const ninetyDaysStr = ninetyDaysAgo.toISOString();
+    const retentionDate = new Date(syncWindow.until);
+    retentionDate.setDate(retentionDate.getDate() - 90);
+    const retentionDay = retentionDate.toISOString().split('T')[0];
+    const activityByDate = {};
+    for (const [date, count] of Object.entries(cachedActivity || {})) {
+      if (date >= retentionDay) activityByDate[date] = count;
+    }
+
+    const reposToScan = syncWindow.incremental
+      ? allRepos.filter(repo => !repo.pushed_at || repo.pushed_at >= syncWindow.since)
+      : allRepos;
 
     let reposProcessed = 0;
-    const totalRepos = allRepos.length;
+    const totalRepos = reposToScan.length;
 
-    for (const repo of allRepos) {
+    for (const repo of reposToScan) {
       reposProcessed++;
       progressCallback.send('sync-progress', { current: reposProcessed, total: totalRepos, repo: repo.name });
 
@@ -315,7 +325,7 @@ ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivi
       while (hasMore) {
         try {
           const commits = await fetchGitHub(
-            `/repos/${fullName}/commits?since=${ninetyDaysStr}&per_page=100&page=${page}`,
+            `/repos/${fullName}/commits?since=${syncWindow.since}&until=${syncWindow.until}&per_page=100&page=${page}`,
             token
           );
 
@@ -332,7 +342,9 @@ ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivi
             const date = commit.commit?.author?.date;
             if (date) {
               const dateStr = date.split('T')[0];
-              activityByDate[dateStr] = (activityByDate[dateStr] || 0) + 1;
+              if (dateStr >= retentionDay && dateStr <= syncWindow.until.split('T')[0]) {
+                activityByDate[dateStr] = (activityByDate[dateStr] || 0) + 1;
+              }
             }
           }
 
@@ -371,7 +383,7 @@ ipcMain.handle('github-full-sync', async (event, { username, token, cachedActivi
       activity: activityByDate,
       repos: allRepos,
       trending,
-      lastSync: now.toISOString(),
+      lastSync: syncWindow.until,
       totalCommits
     };
   } catch (err) {

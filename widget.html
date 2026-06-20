@@ -240,6 +240,7 @@
     ];
 
     let config = { username: 'benclawbot', token: '' };
+    const SYNC_CACHE_VERSION = '2';
 
     function langColor(lang) {
       const colors = {Python: 'bg-blue-500', TypeScript: 'bg-blue-400', Rust: 'bg-orange-500', Go: 'bg-cyan-500', JavaScript: 'bg-yellow-400', HTML: 'bg-orange-400', Dart: 'bg-cyan-400', 'Jupyter Notebook': 'bg-orange-400'};
@@ -426,17 +427,11 @@
     }
 
     async function smartSync() {
-      // Token gate — if missing, open config; save handler will re-invoke smartSync.
       if (!config.username || !config.token) {
         document.getElementById('config-panel').classList.add('open');
         return;
       }
-      const lastSync = localStorage.getItem('gh-last-sync');
-      if (!lastSync) {
-        await fullSync();
-      } else {
-        await deltaSync();
-      }
+      await fullSync();
     }
 
     async function deltaSync() {
@@ -519,7 +514,6 @@
           buildStats(staticAllRepos.length, staticAllRepos.reduce((s,r) => s+r.stars, 0), staticAllRepos.reduce((s,r) => s+r.issues, 0));
           buildTrending(staticTrending);
         }
-        document.getElementById('commit-count').textContent = '?';
       }
 
       setTimeout(() => icon.classList.remove('spin'), 800);
@@ -532,7 +526,9 @@
       const repoEl = document.getElementById('sync-repo');
       const countEl = document.getElementById('sync-count');
 
-      const cachedActivityStr = localStorage.getItem('gh-activity');
+      const cacheIsCurrent = localStorage.getItem('gh-sync-version') === SYNC_CACHE_VERSION;
+      const cachedActivityStr = cacheIsCurrent ? localStorage.getItem('gh-activity') : null;
+      const lastSync = cacheIsCurrent ? localStorage.getItem('gh-last-sync') : null;
       let cachedActivity = {};
       try { cachedActivity = JSON.parse(cachedActivityStr) || {}; } catch {}
 
@@ -548,7 +544,12 @@
       });
 
       try {
-        const result = await window.electronAPI.fullSync({ username: config.username, token: config.token, cachedActivity });
+        const result = await window.electronAPI.fullSync({
+          username: config.username,
+          token: config.token,
+          cachedActivity,
+          lastSync
+        });
 
         if (result.error) {
           if (result.rateLimit) {
@@ -566,6 +567,7 @@
         // Cache the full activity map
         localStorage.setItem('gh-activity', JSON.stringify(result.activity));
         localStorage.setItem('gh-last-sync', result.lastSync);
+        localStorage.setItem('gh-sync-version', SYNC_CACHE_VERSION);
 
         // Build UI from full sync results
         const sevenDaysAgo = new Date();
@@ -596,9 +598,9 @@
         renderState(state);
         document.getElementById('commit-count').textContent = (result.totalCommits || 0).toLocaleString();
 
-        const lastSync = localStorage.getItem('gh-last-sync');
-        if (lastSync) {
-          const d = new Date(lastSync);
+        const displayLastSync = localStorage.getItem('gh-last-sync');
+        if (displayLastSync) {
+          const d = new Date(displayLastSync);
           document.getElementById('sync-last').textContent = `Last full sync: ${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
         }
         statusEl.textContent = `Sync complete!`;
@@ -633,6 +635,7 @@
       if (!confirm('Clear cached activity map and rebuild from scratch?')) return;
       localStorage.removeItem('gh-activity');
       localStorage.removeItem('gh-last-sync');
+      localStorage.removeItem('gh-sync-version');
       document.getElementById('config-panel').classList.remove('open');
       smartSync();
     });

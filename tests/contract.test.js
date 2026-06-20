@@ -37,6 +37,7 @@ async function main() {
   // in isolation. The actual function in main.js uses https.request
   // but the bug pattern is: ignoring statusCode >= 400.
   const testCode = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const widgetCode = fs.readFileSync(path.join(__dirname, '..', 'widget.html'), 'utf8');
 
   await it('fetchGitHub has status code check (regression: 404 must not be silent)', () => {
     // The fixed code contains a block that checks res.statusCode >= 400
@@ -212,6 +213,114 @@ async function main() {
     assert.ok(
       correctEndpoint.length >= 2,
       `expected /user/repos in both github-fetch-data and github-full-sync; found ${correctEndpoint.length} occurrences`
+    );
+  });
+
+  // ---------- Defense: manual sync refreshes from the last successful watermark ----------
+  section('manual sync: bounded repository commit delta');
+
+  await it('buildSyncWindow bounds an incremental refresh after the last sync', () => {
+    const { buildSyncWindow } = require('../sync-window');
+    const window = buildSyncWindow(
+      '2026-06-19T06:03:13.893Z',
+      new Date('2026-06-20T10:00:00.000Z')
+    );
+
+    assert.deepStrictEqual(window, {
+      since: '2026-06-19T06:03:13.894Z',
+      until: '2026-06-20T10:00:00.000Z',
+      incremental: true
+    });
+  });
+
+  await it('buildSyncWindow uses a 90-day window for the initial full sync', () => {
+    const { buildSyncWindow } = require('../sync-window');
+    const window = buildSyncWindow(null, new Date('2026-06-20T10:00:00.000Z'));
+
+    assert.deepStrictEqual(window, {
+      since: '2026-03-22T10:00:00.000Z',
+      until: '2026-06-20T10:00:00.000Z',
+      incremental: false
+    });
+  });
+
+  await it('github-full-sync accepts lastSync and bounds commit requests with since and until', () => {
+    assert.ok(
+      /github-full-sync'[\s\S]*cachedActivity,\s*lastSync/.test(testCode),
+      'github-full-sync does not accept the last successful sync timestamp'
+    );
+    assert.ok(
+      /commits\?since=\$\{syncWindow\.since\}&until=\$\{syncWindow\.until\}/.test(testCode),
+      'commit requests are not bounded to the exact interval since the previous sync'
+    );
+  });
+
+  await it('commit author dates outside the 90-day activity window are ignored', () => {
+    assert.ok(
+      /dateStr\s*>=\s*retentionDay/.test(testCode),
+      'full sync counts commits whose author date falls before the activity window'
+    );
+    assert.ok(
+      /dateStr\s*<=\s*syncWindow\.until\.split\('T'\)\[0\]/.test(testCode),
+      'full sync counts commits whose author date falls after the sync watermark'
+    );
+  });
+
+  await it('the sync button always uses repository commit sync, not the capped events feed', () => {
+    const smartSync = widgetCode.match(/async function smartSync\(\)\s*\{([\s\S]*?)\n    \}/);
+    assert.ok(smartSync, 'smartSync function not found');
+    assert.ok(/await fullSync\(\)/.test(smartSync[1]), 'smartSync does not invoke fullSync');
+    assert.ok(!/deltaSync/.test(smartSync[1]), 'smartSync still routes manual refresh through deltaSync');
+  });
+
+  await it('the renderer forwards the previous sync watermark and preserves cached commit totals on errors', () => {
+    assert.ok(
+      /fullSync\(\{[\s\S]*lastSync[\s\S]*\}\)/.test(widgetCode),
+      'renderer does not pass lastSync to the repository commit sync'
+    );
+    assert.ok(
+      !/document\.getElementById\('commit-count'\)\.textContent\s*=\s*'\?'/.test(widgetCode),
+      'an API error still replaces the last-known-good commit count with ?'
+    );
+  });
+
+  await it('fullSync does not shadow the lastSync watermark inside its request block', () => {
+    const fullSync = widgetCode.match(/async function fullSync\(\)\s*\{([\s\S]*?)\n    \}/);
+    assert.ok(fullSync, 'fullSync function not found');
+    const declarations = fullSync[1].match(/\b(?:const|let)\s+lastSync\b/g) || [];
+    assert.strictEqual(
+      declarations.length,
+      1,
+      'lastSync is redeclared inside fullSync, causing a temporal-dead-zone runtime error'
+    );
+  });
+
+  await it('legacy event-based activity is rebuilt once before incremental sync resumes', () => {
+    assert.ok(
+      /SYNC_CACHE_VERSION\s*=\s*'2'/.test(widgetCode),
+      'widget does not declare the corrected sync cache version'
+    );
+    assert.ok(
+      /localStorage\.getItem\('gh-sync-version'\)\s*===\s*SYNC_CACHE_VERSION/.test(widgetCode),
+      'widget does not detect legacy activity caches'
+    );
+    assert.ok(
+      /localStorage\.setItem\('gh-sync-version',\s*SYNC_CACHE_VERSION\)/.test(widgetCode),
+      'widget does not mark a successful repository-based rebuild as current'
+    );
+  });
+
+  await it('the packaged app preserves the existing Roaming user-data profile', () => {
+    const userDataIndex = testCode.indexOf("app.setPath('userData'");
+    const cacheIndex = testCode.indexOf("app.setPath('cache'");
+    assert.ok(userDataIndex >= 0, 'main.js does not pin the existing userData directory');
+    assert.ok(
+      userDataIndex < cacheIndex,
+      'userData must be pinned before overriding the Chromium cache path'
+    );
+    assert.ok(
+      /app\.getPath\('appData'\)[\s\S]*github-widget-desktop/.test(testCode),
+      'userData is not based on the existing Roaming AppData profile'
     );
   });
 

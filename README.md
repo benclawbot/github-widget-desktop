@@ -12,9 +12,7 @@ A lightweight GitHub dashboard widget for Windows — always accessible on your 
 - **Active repos** — recently pushed repositories with language, stars, and issues
 - **Quick stats** — total repos, stars, open issues, and contributions
 - **Trending repos** — today's trending GitHub projects
-- **Two refresh modes**:
-  - **Quick refresh** (🔄) — fetches recent events and merges with cached activity. Fast, no rate limit pressure.
-  - **Full sync** (⟳) — scans every repo's commit history to build a complete activity map. Runs on first launch, then only fetches deltas.
+- **Reliable incremental sync** — the sync button refreshes repository metadata, trending projects, and commits added since the last successful sync. The first sync rebuilds the 90-day activity map.
 - **System tray integration** — double-click tray icon to restore, right-click for menu
 - **Custom title bar** — minimize and close buttons (hide to tray, don't quit)
 - **Toggle always-on-top** — right-click tray → Toggle Always on Top
@@ -34,15 +32,14 @@ npm run dev     # development mode
 npm run build   # build .exe installer
 ```
 
-- Run `dist\GitHub Widget Setup 1.0.0.exe` to install, or
+- Run `dist\GitHub Widget Setup 1.0.6.exe` to install, or
 - Run `dist\win-unpacked\GitHub Widget.exe` directly for portable use
 
 ## Controls
 
 | Action | Result |
 |--------|--------|
-| 🔄 button | Quick refresh — recent events only, merged with cache |
-| ⟳ button | Full sync — scan every repo, rebuild complete activity map |
+| Sync button | Refresh all widget data and fetch repository commits since the last successful sync |
 | ⚙ button | Settings — GitHub username and personal access token |
 | Minimize / Close button | Hides to system tray |
 | Double-click tray icon | Restore widget |
@@ -51,7 +48,7 @@ npm run build   # build .exe installer
 ## Notes
 
 - A GitHub token with `repo` scope is required to access private repositories and to avoid rate limits. Get one at GitHub → Settings → Developer Settings → Personal Access Tokens.
-- The full sync may take a few minutes the first time (it iterates all your repos and pulls commit history). Subsequent quick refreshes only fetch the delta.
+- The first sync may take a few minutes because it rebuilds 90 days of commit history. Subsequent syncs query only repositories pushed since the previous successful sync.
 - Activity data is cached in `localStorage` so it persists between launches.
 
 ## Testing
@@ -71,6 +68,7 @@ The contract tests are the regression guards for bugs that shipped in earlier ve
 
 ## Recent Changes
 
+- [1.0.6] Fix manual sync to use bounded repository commit deltas, refresh every widget section, preserve cached values on errors, and rebuild legacy event-based caches once (2026-06-20)
 - [1.0.3] Fix activity map month labels (CSS Grid so labels line up with their week column) and trending repos (now scrapes github.com/trending daily feed with search-API fallback) (2026-06-17)
 - [1.0.2] Add contract + integration tests, pre-commit hook guards regressions (2026-06-17)
 - [1.0.1] Fix full sync API path (`/users/{u}/repos/{r}/commits` → `/repos/{u}/{r}/commits`) and fix listener leak in preload (2026-06-17)
