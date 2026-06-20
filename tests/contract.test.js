@@ -324,6 +324,82 @@ async function main() {
     );
   });
 
+  // ---------- Cumulative activity chart data and path helpers ----------
+  section('activity chart: cumulative series and smooth path');
+
+  await it('fills every calendar day and keeps daily plus cumulative values', () => {
+    const { buildCumulativeSeries } = require('../activity-chart');
+    const series = buildCumulativeSeries({
+      '2026-06-03': 4,
+      '2026-06-01': 2
+    });
+
+    assert.deepStrictEqual(series, [
+      { date: '2026-06-01', daily: 2, cumulative: 2 },
+      { date: '2026-06-02', daily: 0, cumulative: 2 },
+      { date: '2026-06-03', daily: 4, cumulative: 6 }
+    ]);
+  });
+
+  await it('ignores invalid dates and non-positive commit counts', () => {
+    const { buildCumulativeSeries } = require('../activity-chart');
+    const series = buildCumulativeSeries({
+      'not-a-date': 9,
+      '2026-06-01': -3,
+      '2026-06-02': 0,
+      '2026-06-03': 2.8
+    });
+
+    assert.deepStrictEqual(series, [
+      { date: '2026-06-03', daily: 2, cumulative: 2 }
+    ]);
+  });
+
+  await it('returns an empty cumulative series when no retrieved commits exist', () => {
+    const { buildCumulativeSeries } = require('../activity-chart');
+    assert.deepStrictEqual(buildCumulativeSeries({}), []);
+    assert.deepStrictEqual(buildCumulativeSeries(null), []);
+  });
+
+  await it('builds stable single-point and two-point SVG paths', () => {
+    const { buildMonotonePath } = require('../activity-chart');
+    assert.strictEqual(buildMonotonePath([]), '');
+    assert.strictEqual(buildMonotonePath([{ x: 7, y: 11 }]), 'M 7 11');
+    assert.strictEqual(
+      buildMonotonePath([{ x: 0, y: 10 }, { x: 20, y: 4 }]),
+      'M 0 10 L 20 4'
+    );
+  });
+
+  await it('uses bounded cubic controls for a non-descending cumulative series', () => {
+    const { buildMonotonePath } = require('../activity-chart');
+    const points = [
+      { x: 0, y: 100 },
+      { x: 20, y: 80 },
+      { x: 40, y: 80 },
+      { x: 60, y: 20 }
+    ];
+    const path = buildMonotonePath(points);
+    const segments = [...path.matchAll(/C ([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)/g)];
+
+    assert.strictEqual(segments.length, points.length - 1, path);
+    segments.forEach((match, index) => {
+      const controlY1 = Number(match[2]);
+      const controlY2 = Number(match[4]);
+      const low = Math.min(points[index].y, points[index + 1].y);
+      const high = Math.max(points[index].y, points[index + 1].y);
+      assert.ok(controlY1 >= low && controlY1 <= high, `first control escaped segment ${index}`);
+      assert.ok(controlY2 >= low && controlY2 <= high, `second control escaped segment ${index}`);
+    });
+  });
+
+  await it('closes the cumulative area path to the supplied baseline', () => {
+    const { buildAreaPath } = require('../activity-chart');
+    const area = buildAreaPath([{ x: 4, y: 20 }, { x: 40, y: 8 }], 64);
+    assert.ok(area.startsWith('M 4 20 L 40 8'), area);
+    assert.ok(area.endsWith('L 40 64 L 4 64 Z'), area);
+  });
+
   // ---------- Defense: trending uses repo.language not repo.langColor ----------
   // (The widget.html rendering is checked in the live test indirectly; here we
   // check that the API field used is 'language', not a derived class name.)
