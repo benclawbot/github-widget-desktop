@@ -9,7 +9,9 @@
 const https = require('https');
 const fs = require('path');
 
-const TOKEN = process.env.GITHUB_TOKEN || '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';
+// Optional: export GITHUB_TOKEN=<your token> before running. Never hardcode it.
+// Without a token the test still works, but is limited to 60 requests/hour.
+const TOKEN = process.env.GITHUB_TOKEN || '';
 const USERNAME = 'benclawbot';
 
 let passed = 0, failed = 0;
